@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Color Groups</title>
+  <style>
+    html, body {
+      margin:0; padding:0;
+      width:100%; height:100%;
+      overflow:hidden;
+      font-family:sans-serif;
+    }
+    #swatches, #subsets {
+      display:flex; gap:8px;
+      overflow-x:auto; margin:12px;
+      height:32px; align-items:center;
+      -ms-overflow-style:none; scrollbar-width:none;
+    }
+    #swatches::-webkit-scrollbar,
+    #subsets::-webkit-scrollbar { display:none; }
+
+    .swatch {
+      flex:0 0 32px; width:32px; height:32px;
+      border:2px solid transparent; border-radius:4px;
+      cursor:pointer; background-size:cover;
+      box-shadow:0 0 0 1px rgba(255,255,255,0.3);
+    }
+    .swatch.selected { border-color:#000; }
+    .swatch.sub { opacity:0.75; }
+    .swatch.sub.selected { opacity:1; border-color:#000; }
+
+    .helper-text {
+      font-size:12px; color:#666; text-align:center; flex:1;
+    }
+
+    .slider-row {
+      display:flex; align-items:center;
+      padding:0 12px; margin-bottom:8px;
+    }
+    .slider-row label { width:20px; }
+    input[type=range] {
+      -webkit-appearance:none;
+      height:20px; border-radius:10px;
+      flex:1; margin:0 8px; background:transparent;
+    }
+    input[type=range]::-webkit-slider-runnable-track {
+      height:20px; border-radius:10px; border:none;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance:none;
+      width:20px; height:20px;
+      border-radius:50%;
+      background:#fff; border:2px solid #000;
+      margin-top:0;
+    }
+    input[type=range]::-moz-range-track {
+      height:20px; border-radius:10px; border:none;
+    }
+    input[type=range]::-moz-range-thumb {
+      width:20px; height:20px;
+      border-radius:50%;
+      background:#fff; border:2px solid #000;
+    }
+    input[type=number] { width:48px; }
+    #reset-btn {
+      display:block; margin:8px auto 0;
+      padding:6px 12px; background:#eee;
+      border:none; border-radius:4px; cursor:pointer;
+      font-size:14px;
+    }
+  </style>
+</head>
+<body>
+  <div id="swatches"></div>
+  <div id="subsets"></div>
+
+  <div class="slider-row">
+    <label>H</label>
+    <input id="hRange" type="range" min="0" max="360">
+    <input id="hNum"   type="number" min="0" max="360">
+  </div>
+  <div class="slider-row">
+    <label>S</label>
+    <input id="sRange" type="range" min="0" max="100">
+    <input id="sNum"   type="number" min="0" max="100">
+  </div>
+  <div class="slider-row">
+    <label>L</label>
+    <input id="lRange" type="range" min="0" max="100">
+    <input id="lNum"   type="number" min="0" max="100">
+  </div>
+
+  <button id="reset-btn">Reset Selected</button>
+
+  <script>
+    const sw = document.getElementById('swatches');
+    const sub = document.getElementById('subsets');
+    const hR = document.getElementById('hRange'),
+          sR = document.getElementById('sRange'),
+          lR = document.getElementById('lRange');
+    const hN = document.getElementById('hNum'),
+          sN = document.getElementById('sNum'),
+          lN = document.getElementById('lNum');
+    const resetB = document.getElementById('reset-btn');
+
+    let colors = [], subsets = [];
+    let selectedCluster = 0, selectedSubset = -1;
+    let isExpanded = false;
+
+    function setSliderBackgrounds(c) {
+      hR.style.background =
+        'linear-gradient(to right, red,yellow,lime,cyan,blue,magenta,red)';
+      sR.style.background =
+        `linear-gradient(to right, hsl(${c.h},0%,${c.l*100}%),hsl(${c.h},100%,${c.l*100}%))`;
+      lR.style.background =
+        `linear-gradient(to right, hsl(${c.h},${c.s*100}%,0%),hsl(${c.h},${c.s*100}%,50%),hsl(${c.h},${c.s*100}%,100%))`;
+    }
+
+    function showHelper() {
+      sub.innerHTML =
+        '<div class="helper-text">Double-click a group to reveal its colors</div>';
+    }
+
+    function selectCluster(i) {
+      isExpanded = false;
+      selectedCluster = i;
+      selectedSubset  = -1;
+      sw.querySelectorAll('.swatch').forEach((e,idx)=>
+        e.classList.toggle('selected', idx===i)
+      );
+      // initialize subset-row to helper
+      showHelper();
+
+      const c = colors[i];
+      if (c.all) {
+        // compute average HSL of the “All” group
+        const arr = subsets[i] || [];
+        if (arr.length) {
+          let sum = {h:0,s:0,l:0};
+          arr.forEach(x=>{ sum.h+=x.h; sum.s+=x.s; sum.l+=x.l });
+          const avg = {
+            h: sum.h/arr.length,
+            s: sum.s/arr.length,
+            l: sum.l/arr.length
+          };
+          hR.value = hN.value = Math.round(avg.h);
+          sR.value = sN.value = Math.round(avg.s*100);
+          lR.value = lN.value = Math.round(avg.l*100);
+          setSliderBackgrounds(avg);
+        }
+      } else {
+        hR.value = hN.value = Math.round(c.h);
+        sR.value = sN.value = Math.round(c.s*100);
+        lR.value = lN.value = Math.round(c.l*100);
+        setSliderBackgrounds(c);
+      }
+    }
+
+    function showSubset(i) {
+      selectedSubset = -1;
+      sub.innerHTML = '';
+      subsets[i].forEach((c,j) => {
+        const d = document.createElement('div');
+        d.className = 'swatch sub';
+        d.style.background =
+          `hsl(${c.h.toFixed(0)},${(c.s*100).toFixed(0)}%,${(c.l*100).toFixed(0)}%)`;
+        d.onclick = () => {
+          selectedSubset = j;
+          sub.querySelectorAll('.swatch').forEach((e,idx)=>
+            e.classList.toggle('selected', idx===j)
+          );
+          // set sliders to this subset
+          hR.value = hN.value = Math.round(c.h);
+          sR.value = sN.value = Math.round(c.s*100);
+          lR.value = lN.value = Math.round(c.l*100);
+          setSliderBackgrounds(c);
+        };
+        sub.appendChild(d);
+      });
+    }
+
+    function post(type, comp, val) {
+      parent.postMessage({ pluginMessage:{
+        type,
+        groupIndex: selectedCluster,
+        subsetIndex: selectedSubset,
+        component: comp,
+        value: val
+      }}, '*');
+
+      // live-preview only on the affected swatch
+      const H = +hR.value, S = +sR.value/100, L = +lR.value/100;
+      setSliderBackgrounds({h:H,s:S,l:L});
+      if (selectedSubset >= 0) {
+        sub.children[selectedSubset].style.background =
+          `hsl(${H},${(S*100).toFixed(0)}%,${(L*100).toFixed(0)}%)`;
+      } else if (!colors[selectedCluster].all) {
+        sw.children[selectedCluster].style.background =
+          `hsl(${H},${(S*100).toFixed(0)}%,${(L*100).toFixed(0)}%)`;
+      }
+    }
+
+    // now use selectedSubset ≥0, not isExpanded, to pick subset vs group
+    hR.oninput = ()=>{ hN.value=hR.value; post(selectedSubset>=0?'change-hsl-subset':'change-hsl-group','h',+hR.value); };
+    hN.onchange= ()=>{ hR.value=hN.value; post(selectedSubset>=0?'change-hsl-subset':'change-hsl-group','h',+hN.value); };
+    sR.oninput = ()=>{ sN.value=sR.value; post(selectedSubset>=0?'change-hsl-subset':'change-hsl-group','s',+sR.value); };
+    sN.onchange= ()=>{ sR.value=sN.value; post(selectedSubset>=0?'change-hsl-subset':'change-hsl-group','s',+sN.value); };
+    lR.oninput = ()=>{ lN.value=lR.value; post(selectedSubset>=0?'change-hsl-subset':'change-hsl-group','l',+lR.value); };
+    lN.onchange= ()=>{ lR.value=lN.value; post(selectedSubset>=0?'change-hsl-subset':'change-hsl-group','l',+lN.value); };
+
+    resetB.onclick = () => {
+      const msg = selectedSubset>=0 ? 'reset-subset' : 'reset-group';
+      parent.postMessage({ pluginMessage:{
+        type: msg,
+        groupIndex: selectedCluster,
+        subsetIndex: selectedSubset
+      }}, '*');
+    };
+
+    window.onmessage = e => {
+      const msg = e.data.pluginMessage;
+      if (msg.type === 'selection-colors') {
+        colors  = msg.colors;
+        subsets = msg.subsets;
+        sw.innerHTML = '';
+        sub.innerHTML = '';
+        msg.colors.forEach((c,i) => {
+          const d = document.createElement('div');
+          d.className = 'swatch';
+          d.style.background = c.all
+            ? 'conic-gradient(red,yellow,lime,cyan,blue,magenta,red)'
+            : `hsl(${c.h.toFixed(0)},${(c.s*100).toFixed(0)}%,${(c.l*100).toFixed(0)}%)`;
+          d.onclick    = () => selectCluster(i);
+          d.ondblclick = () => {
+            isExpanded = true;
+            selectCluster(i);
+            showSubset(i);
+          };
+          sw.appendChild(d);
+        });
+        if (colors.length) selectCluster(0);
+
+      } else if (msg.type === 'update-subsets') {
+        subsets = msg.subsets;
+        if (isExpanded && selectedCluster >= 0) {
+          showSubset(selectedCluster);
+        }
+      }
+    };
+  </script>
+</body>
+</html>
