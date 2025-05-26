@@ -42,7 +42,7 @@
         font-size: 12px;    /* your new smaller size */
         color: #A7A5A5;        /* your new color */
         text-align: center;
-        margin: 10px 26px 26px 26px;
+        margin: 16px 26px 20px 26px;
       }
     /* UI container */
     #uiContainer {
@@ -55,9 +55,14 @@
     #swatches, #subsets {
       display: flex; gap: 4px;
       overflow-x: auto;
-      margin: 8px 0 12px 10px;
       height: 32px; align-items: center;
       -ms-overflow-style: none; scrollbar-width: none;
+    }
+    #swatches{
+      margin: 8px 0 8px 10px;
+    }
+    #subsets{
+      margin: 8px 0 16px 10px;
     }
     #swatches::-webkit-scrollbar,
     #subsets::-webkit-scrollbar { display: none; }
