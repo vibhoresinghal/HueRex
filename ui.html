@@ -38,7 +38,12 @@
       text-align: center;
       padding: 0 16px;
     }
-
+      #subsets .helper-text {
+        font-size: 12px;    /* your new smaller size */
+        color: #A7A5A5;        /* your new color */
+        text-align: center;
+        margin: 10px 26px 26px 26px;
+      }
     /* UI container */
     #uiContainer {
       display: block;
@@ -48,9 +53,9 @@
 
     /* swatches and subsets */
     #swatches, #subsets {
-      display: flex; gap: 8px;
+      display: flex; gap: 4px;
       overflow-x: auto;
-      margin: 12px;
+      margin: 8px 0 12px 10px;
       height: 32px; align-items: center;
       -ms-overflow-style: none; scrollbar-width: none;
     }
@@ -58,14 +63,21 @@
     #subsets::-webkit-scrollbar { display: none; }
 
     .swatch {
-      flex: 0 0 32px; width: 32px; height: 32px;
-      border: 2px solid transparent; border-radius: 4px;
+      flex: 0 0 42px; width: 42px; height: 28px;
+      border: 2px solid rgba(0, 0, 0, 0.12); border-radius: 61px;
       cursor: pointer; background-size: cover;
       box-shadow: 0 0 0 1px rgba(255,255,255,0.3);
     }
-    .swatch.selected { border-color: #000; }
-    .swatch.sub { opacity: 0.75; }
-    .swatch.sub.selected { opacity: 1; border-color: #000; }
+    .swatch.selected { border: 2px solid #00000096; }
+    .swatch.sub { flex: 0 0 28px; width: 28px; height: 28px; opacity: 1; }
+    .swatch.sub.selected { opacity: 1; border-color: #00000096; }
+
+    .separator {
+    height: 1px;
+    background: #ddd;
+    margin: 0px;
+    padding: 0px 8px;    /* 4px vertical gap; matches your 12px side padding */
+  }
 
     /* controls */
     #controls { padding: 0 12px; }
@@ -73,47 +85,79 @@
 
     .slider-row {
       display: flex; align-items: center;
-      margin-bottom: 8px;
+      margin-bottom: 10px;
     }
-    .slider-row label { width: 20px; }
+    .slider-row label { width: 12px; }
 
     input[type=range] {
       -webkit-appearance: none;
-      height: 20px; border-radius: 10px;
+      height: 26px; border-radius: 31px;
       flex: 1; margin: 0 8px; background: transparent;
+      padding: 5px;
+      box-sizing:border-box;
     }
     input[type=range]::-webkit-slider-runnable-track {
-      height: 20px; border-radius: 10px; border: none;
+      height: 26px; border-radius: 31px; border: none;
     }
     input[type=range]::-webkit-slider-thumb {
       -webkit-appearance: none;
-      width: 20px; height: 20px; border-radius: 50%;
-      background: #fff; border: 2px solid #000;
-    }
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 0 3px #ffffff;
+      /* center the thumb vertically: (16px thumb vs. 26px track) */
+      margin-top: 5px;   /* -(trackHeight - thumbHeight)/2 = -(26-16)/2 */
+      /* remove any margin-left */
+  }
     input[type=range]::-moz-range-track {
-      height: 20px; border-radius: 10px; border: none;
+      height: 26px; border-radius: 31px; border: none;
     }
     input[type=range]::-moz-range-thumb {
-      width: 20px; height: 20px; border-radius: 50%;
-      background: #fff; border: 2px solid #000;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: currentColor;
+      border: 2px solid #ffffff;
+      /* Firefox also needs a negative offset */
+      margin-top: 5px;
     }
 
     /* always show number spinners */
-    input[type=number] {
-      -webkit-appearance: auto;
-      margin: 0; width: 48px;
-    }
-    input[type=number]::-webkit-inner-spin-button,
-    input[type=number]::-webkit-outer-spin-button,
-    input[type=number]::-moz-inner-spin-button,
-    input[type=number]::-moz-outer-spin-button {
-      opacity: 1;
-    }
+/* style the number inputs themselves */
+        input[type=number] {
+          -webkit-appearance: auto;
+          margin: 0;
+          width: 56px; height: 26px;
+          border: 0px solid #ccc;
+          background-color: #F2F2F2;       /* optional: gives it a border */
+          border-radius: 50px;          /* <— your new corner radius */
+          padding: 8px 8px;             /* optional: space for arrows */
+          box-sizing: border-box;
+        }
+
+        /* make sure the spin-buttons are always shown */
+        input[type=number]::-webkit-inner-spin-button,
+        input[type=number]::-webkit-outer-spin-button {
+          opacity: 1;
+          display: inline-block;        /* force them to render even when not hovered */
+        }
+
+        /* Firefox */
+        input[type=number] {
+          -moz-appearance: textfield;   /* keep native arrows in Firefox */
+        }
+        input[type=number]::-moz-inner-spin-button,
+        input[type=number]::-moz-outer-spin-button {
+          opacity: 1;
+          display: inline-block;
+        }
+
 
     #reset-btn {
-      display: block; margin: 8px auto 0;
-      padding: 6px 12px; background: #eee;
-      border: none; border-radius: 4px; cursor: pointer;
+      display: block; margin: 12px auto 0;
+      padding: 8px 16px; background: #F3EDF7;
+      border: none; border-radius: 100px; cursor: pointer;
       font-size: 14px;
     }
   </style>
@@ -131,6 +175,7 @@
   <!-- main UI container -->
   <div id="uiContainer">
     <div id="swatches"></div>
+    <div class="separator"></div>
     <div id="subsets"></div>
     <div id="controls">
       <div class="slider-row">
@@ -148,7 +193,7 @@
         <input id="lRange" type="range" min="0" max="99">
         <input id="lNum"   type="number" min="0" max="99">
       </div>
-      <button id="reset-btn">Reset Selected</button>
+      <button id="reset-btn">Reset</button>
     </div>
   </div>
 
@@ -171,13 +216,25 @@
     let selectedCluster = 0, selectedSubset = -1, isExpanded = false;
 
     function setSliderBackgrounds(c) {
+      // hue thumb: pure hue at full sat/50% light
+      hR.style.color = `hsl(${c.h.toFixed(0)},100%,50%)`;
+
+      // saturation thumb: current saturation at hue=c.h, lightness=50%
+      sR.style.color = `hsl(${c.h.toFixed(0)},${(c.s*100).toFixed(0)}%,50%)`;
+
+      // lightness thumb: current lightness at hue=c.h, full sat
+      lR.style.color = `hsl(${c.h.toFixed(0)},100%,${(c.l*100).toFixed(0)}%)`;
+
+      // track backgrounds (unchanged)
       hR.style.background =
         'linear-gradient(to right, red,yellow,lime,cyan,blue,magenta,red)';
       sR.style.background =
-        `linear-gradient(to right, hsl(${c.h},0%,${c.l*100}%),hsl(${c.h},100%,${c.l*100}%))`;
+        `linear-gradient(to right, hsl(${c.h},0%,50%),hsl(${c.h},100%,50%))`;
       lR.style.background =
-        `linear-gradient(to right, hsl(${c.h},${c.s*100}%,0%),hsl(${c.h},${c.s*100}%,50%),hsl(${c.h},${c.s*100}%,100%))`;
-    }
+        `linear-gradient(to right, hsl(${c.h},100%,0%),hsl(${c.h},100%,50%),hsl(${c.h},100%,100%))`;
+}
+
+
 
     function showHelper(msg) {
       overlay.querySelector('.helper-text').textContent = msg;
@@ -214,7 +271,7 @@
         lR.value = lN.value = Math.round(c.l * 100);
         setSliderBackgrounds(c);
       }
-      sub.innerHTML = '<div class="helper-text">Double-click to expand</div>';
+      sub.innerHTML = '<div class="helper-text">Double click on a color group to see all colors</div>';
     }
 
     function showSubset(i) {
@@ -307,9 +364,21 @@ d.onmouseleave = () => {
     colors.forEach((c, i) => {
       const d = document.createElement('div');
       d.className = 'swatch';
-      d.style.background = c.all
-        ? 'conic-gradient(red,yellow,lime,cyan,blue,magenta,red)'
-        : `hsl(${c.h.toFixed(0)},${(c.s*100).toFixed(0)}%,${(c.l*100).toFixed(0)}%)`;
+      if (c.all) {
+  // make a white "All" button
+      d.textContent = 'All';
+      d.style.background    = '#fff';
+      d.style.color         = '#000';
+      d.style.display       = 'flex';
+      d.style.alignItems    = 'center';
+      d.style.justifyContent= 'center';
+      d.style.fontSize      = '12px';
+    } else {
+  // original color swatch
+  d.style.background = 
+    `hsl(${c.h.toFixed(0)},${(c.s*100).toFixed(0)}%,${(c.l*100).toFixed(0)}%)`;
+}
+
       d.onclick    = () => selectCluster(i);
       d.ondblclick = () => { selectCluster(i); showSubset(i); };
       sw.appendChild(d);
