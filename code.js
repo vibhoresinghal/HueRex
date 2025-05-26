@@ -42,7 +42,12 @@ var originalPaints = {}, groupMap = [];
 
 // Record paints & effects (skip hidden)
 function recordOriginals(node) {
+  // skip hidden nodes
   if (node.visible === false) return;
+  // skip the mask layer itself, but not its children
+  if (node.isMask) return;
+
+  // record this node’s fills, strokes, and effects if present
   if (
     (node.fills   !== undefined && node.fills   !== figma.mixed) ||
     (node.strokes !== undefined && node.strokes !== figma.mixed) ||
@@ -54,8 +59,13 @@ function recordOriginals(node) {
       effects: clonePaints(node.effects)
     };
   }
-  if (node.children) node.children.forEach(recordOriginals);
+
+  // recurse into children (including those inside masks)
+  if (node.children) {
+    node.children.forEach(recordOriginals);
+  }
 }
+
 
 // Build hue clusters (±15°), dedupe, skip hidden
 function buildGroups() {
@@ -131,6 +141,31 @@ function getCurrentSubsets() {
     });
   });
 }
+// At top of code.js, add:
+let highlightRects = [];
+
+function clearHighlights() {
+  for (const r of highlightRects) r.remove();
+  highlightRects = [];
+}
+
+function highlightNodes(nodes) {
+  clearHighlights();
+  for (const node of nodes) {
+    const bbox = node.absoluteBoundingBox;
+    if (!bbox) continue;
+    const rect = figma.createRectangle();
+    rect.x = bbox.x;
+    rect.y = bbox.y;
+    rect.resize(bbox.width, bbox.height);
+    rect.fills = [];
+    rect.strokes = [{ type: 'SOLID', color: { r: 1, g: 0, b: 0 } }];
+    rect.strokeWeight = 2;
+    figma.currentPage.appendChild(rect);
+    highlightRects.push(rect);
+  }
+}
+
 
 function handleSelectionChange() {
   var sel = figma.currentPage.selection;
@@ -225,23 +260,72 @@ function resetRef(ref) {
 
 figma.ui.onmessage = msg => {
   if (msg.type === 'change-hsl-group') {
-    const v = msg.component==='h'? msg.value/360: msg.value/100;
-    (groupMap[msg.groupIndex]||[]).forEach(r=>applyRef(r,msg.component,v));
-    figma.ui.postMessage({ type:'update-subsets', subsets:getCurrentSubsets() });
+    const v    = msg.component === 'h' ? msg.value / 360 : msg.value / 100;
+    const refs = groupMap[msg.groupIndex] || [];
+    refs.forEach(ref => applyRef(ref, msg.component, v));
+    figma.ui.postMessage({
+      type:    'update-subsets',
+      subsets: getCurrentSubsets()
+    });
 
   } else if (msg.type === 'change-hsl-subset') {
-    const v = msg.component==='h'? msg.value/360: msg.value/100;
-    const refs = groupMap[msg.groupIndex]||[]; const ref = refs[msg.subsetIndex];
+    const v    = msg.component === 'h' ? msg.value / 360 : msg.value / 100;
+    const refs = groupMap[msg.groupIndex] || [];
+    const ref  = refs[msg.subsetIndex];
     if (ref) applyRef(ref, msg.component, v);
-    figma.ui.postMessage({ type:'update-subsets', subsets:getCurrentSubsets() });
+    figma.ui.postMessage({
+      type:    'update-subsets',
+      subsets: getCurrentSubsets()
+    });
 
   } else if (msg.type === 'reset-group') {
-    (groupMap[msg.groupIndex]||[]).forEach(r=>resetRef(r));
+    (groupMap[msg.groupIndex] || []).forEach(ref => resetRef(ref));
     handleSelectionChange();
 
   } else if (msg.type === 'reset-subset') {
-    const ref = (groupMap[msg.groupIndex]||[])[msg.subsetIndex];
+    const ref = (groupMap[msg.groupIndex] || [])[msg.subsetIndex];
     if (ref) resetRef(ref);
     handleSelectionChange();
+
+  } else if (msg.type === 'hover-subset') {
+    // highlight all nodes matching this subset color
+    const subsetsArray = getCurrentSubsets();
+    const targetHSL   = subsetsArray[msg.groupIndex][msg.subsetIndex];
+    const refs        = groupMap[msg.groupIndex] || [];
+    const nodeIds     = new Set();
+
+    for (const ref of refs) {
+      const node = figma.getNodeById(ref.nodeId);
+      if (!node) continue;
+
+      let color;
+      if (ref.type === 'effects') {
+        color = node.effects[ref.index].color;
+      } else {
+        const paint = node[ref.type][ref.index];
+        color = paint.type === 'SOLID'
+          ? paint.color
+          : paint.gradientStops[ref.stopIndex].color;
+      }
+
+      const hsl = rgbToHsl(color.r, color.g, color.b);
+      const h   = hsl.h * 360, s = hsl.s, l = hsl.l;
+
+      if (
+        Math.abs(h - targetHSL.h) < 5 &&
+        Math.abs(s - targetHSL.s) < 0.05 &&
+        Math.abs(l - targetHSL.l) < 0.05
+      ) {
+        nodeIds.add(ref.nodeId);
+      }
+    }
+
+    const nodesToHighlight = Array.from(nodeIds)
+      .map(id => figma.getNodeById(id))
+      .filter(n => n);
+    highlightNodes(nodesToHighlight);
+
+  } else if (msg.type === 'unhover-subset') {
+    clearHighlights();
   }
 };

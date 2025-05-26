@@ -225,6 +225,7 @@
         d.style.background =
           `hsl(${c.h.toFixed(0)},${(c.s*100).toFixed(0)}%,${(c.l*100).toFixed(0)}%)`;
         d.onclick = () => {
+          
           selectedSubset = j;
           sub.querySelectorAll('.swatch').forEach((e,idx)=>
             e.classList.toggle('selected', idx===j)
@@ -235,6 +236,18 @@
           setSliderBackgrounds(c);
         };
         sub.appendChild(d);
+        d.onmouseenter = () => {
+        parent.postMessage({ pluginMessage: {
+        type: 'hover-subset',
+        groupIndex: selectedCluster,
+        subsetIndex: j
+        }}, '*');
+};
+d.onmouseleave = () => {
+  parent.postMessage({ pluginMessage: {
+    type: 'unhover-subset'
+  }}, '*');
+};
       });
     }
 
