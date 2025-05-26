@@ -1,5 +1,3 @@
-// code.js
-
 // Helpers: RGB ↔ HSL
 function rgbToHsl(r, g, b) {
   var max = Math.max(r, g, b), min = Math.min(r, g, b);
@@ -40,11 +38,9 @@ function clonePaints(arr) {
   return Array.isArray(arr) ? JSON.parse(JSON.stringify(arr)) : [];
 }
 
-// State
-var originalPaints = {};
-var groupMap = [];
+var originalPaints = {}, groupMap = [];
 
-// Record every node’s paints & effects, recursively (skip hidden)
+// Record paints & effects (skip hidden)
 function recordOriginals(node) {
   if (node.visible === false) return;
   if (
@@ -58,16 +54,12 @@ function recordOriginals(node) {
       effects: clonePaints(node.effects)
     };
   }
-  if (node.children) {
-    node.children.forEach(recordOriginals);
-  }
+  if (node.children) node.children.forEach(recordOriginals);
 }
 
-// Build hue‐clusters (±15°), skipping hidden paints
+// Build hue clusters (±15°), dedupe, skip hidden
 function buildGroups() {
-  var unique = [];
-  groupMap = [];
-
+  var unique = []; groupMap = [];
   function cluster(hsl, ref) {
     var tolH = 15/360;
     for (var gi = 0; gi < unique.length; gi++) {
@@ -102,8 +94,8 @@ function buildGroups() {
       });
     });
     (orig.effects || []).forEach((eff, ei) => {
-      if ((eff.type === 'DROP_SHADOW' || eff.type === 'INNER_SHADOW')
-          && eff.visible !== false) {
+      if ((eff.type === 'DROP_SHADOW' || eff.type === 'INNER_SHADOW') &&
+          eff.visible !== false) {
         cluster(rgbToHsl(eff.color.r, eff.color.g, eff.color.b),
                 { nodeId, type: 'effects', index: ei, stopIndex: null });
       }
@@ -117,26 +109,19 @@ function buildGroups() {
   return unique;
 }
 
-// Compute live HSL subsets & dedupe
 function getCurrentSubsets() {
   return groupMap.map(refs => {
     var arr = refs.map(ref => {
       var node = figma.getNodeById(ref.nodeId);
       if (!node) return null;
-      var c;
-      if (ref.type === 'effects') {
-        c = node.effects[ref.index].color;
-      } else {
-        var paints = node[ref.type];
-        var p = paints[ref.index];
-        c = p.type === 'SOLID'
-          ? p.color
-          : p.gradientStops[ref.stopIndex].color;
-      }
+      var c = ref.type === 'effects'
+            ? node.effects[ref.index].color
+            : (node[ref.type][ref.index].type === 'SOLID'
+               ? node[ref.type][ref.index].color
+               : node[ref.type][ref.index].gradientStops[ref.stopIndex].color);
       var hsl = rgbToHsl(c.r, c.g, c.b);
-      return { h: hsl.h * 360, s: hsl.s, l: hsl.l };
+      return { h: hsl.h*360, s: hsl.s, l: hsl.l };
     }).filter(Boolean);
-
     var seen = {};
     return arr.filter(c => {
       var key = `${c.h.toFixed(1)}_${c.s.toFixed(3)}_${c.l.toFixed(3)}`;
@@ -147,20 +132,16 @@ function getCurrentSubsets() {
   });
 }
 
-// On selection change → record, cluster, subsets, sort, post
 function handleSelectionChange() {
   var sel = figma.currentPage.selection;
   originalPaints = {}; groupMap = [];
-
   if (!sel.length) {
     figma.ui.postMessage({ type:'selection-colors', colors: [], subsets: [] });
     return;
   }
   sel.forEach(recordOriginals);
-  var colors = buildGroups();
-  var subsets = getCurrentSubsets();
-
-  var zipped = colors.map((c,i)=>({ color:c, subset:subsets[i], refs:groupMap[i] }));
+  var colors = buildGroups(), subsets = getCurrentSubsets();
+  var zipped = colors.map((c,i)=>({color:c, subset:subsets[i], refs:groupMap[i]}));
   zipped.sort((a,b)=> b.color.l - a.color.l);
   colors   = zipped.map(z=>z.color);
   subsets  = zipped.map(z=>z.subset);
@@ -169,42 +150,62 @@ function handleSelectionChange() {
   figma.ui.postMessage({ type:'selection-colors', colors, subsets });
 }
 
-// show UI + hook events
 figma.showUI(__html__, { width:320, height:260 });
 figma.on('selectionchange', handleSelectionChange);
 handleSelectionChange();
 
-// apply a single ref
 function applyRef(ref, comp, v) {
-  var node = figma.getNodeById(ref.nodeId);
+  const node = figma.getNodeById(ref.nodeId);
   if (!node) return;
+
+  // pull existing color
+  let hsl, rgb;
   if (ref.type === 'effects') {
-    var effs = clonePaints(node.effects), e = effs[ref.index];
-    var hsl  = rgbToHsl(e.color.r, e.color.g, e.color.b); hsl[comp] = v;
-    var rgb  = hslToRgb(hsl.h, hsl.s, hsl.l);
+    const effs = clonePaints(node.effects), e = effs[ref.index];
+    hsl = rgbToHsl(e.color.r, e.color.g, e.color.b);
+    hsl[comp] = v;
+    // —— NEW: if you’re adjusting H on a perfectly desaturated color, give it some S
+    if (comp === 'h' && hsl.s === 0) {
+      hsl.s = 0.5; // 50% sat, adjust as you like
+      // inform the UI so its slider catches that change:
+      figma.ui.postMessage({ type: 'force-saturation', value: Math.round(50) });
+    }
+    rgb = hslToRgb(hsl.h, hsl.s, hsl.l);
     e.color = { r: rgb.r, g: rgb.g, b: rgb.b, a: e.color.a };
     node.effects = effs;
+
   } else {
-    var paints = clonePaints(node[ref.type]), p = paints[ref.index];
+    const paints = clonePaints(node[ref.type]), p = paints[ref.index];
     if (p.type === 'SOLID') {
-      var hsl = rgbToHsl(p.color.r, p.color.g, p.color.b); hsl[comp] = v;
-      var rgb = hslToRgb(hsl.h, hsl.s, hsl.l);
+      hsl = rgbToHsl(p.color.r, p.color.g, p.color.b);
+      hsl[comp] = v;
+      if (comp === 'h' && hsl.s === 0) {
+        hsl.s = 0.5;
+        figma.ui.postMessage({ type: 'force-saturation', value: Math.round(50) });
+      }
+      rgb = hslToRgb(hsl.h, hsl.s, hsl.l);
       p.color = { r: rgb.r, g: rgb.g, b: rgb.b };
     } else {
-      var stop = p.gradientStops[ref.stopIndex];
-      var hsl  = rgbToHsl(stop.color.r, stop.color.g, stop.color.b); hsl[comp] = v;
-      var rgb  = hslToRgb(hsl.h, hsl.s, hsl.l);
+      const stop = p.gradientStops[ref.stopIndex];
+      hsl = rgbToHsl(stop.color.r, stop.color.g, stop.color.b);
+      hsl[comp] = v;
+      if (comp === 'h' && hsl.s === 0) {
+        hsl.s = 0.5;
+        figma.ui.postMessage({ type: 'force-saturation', value: Math.round(50) });
+      }
+      rgb = hslToRgb(hsl.h, hsl.s, hsl.l);
       stop.color = { r: rgb.r, g: rgb.g, b: rgb.b, a: stop.color.a };
     }
     if (ref.type === 'fills') {
-      node.fillStyleId = ''; node.fills   = paints;
+      node.fillStyleId = '';
+      node.fills = paints;
     } else {
-      node.strokeStyleId = ''; node.strokes = paints;
+      node.strokeStyleId = '';
+      node.strokes = paints;
     }
   }
 }
 
-// reset a single ref
 function resetRef(ref) {
   var node = figma.getNodeById(ref.nodeId);
   if (!node) return;
@@ -222,17 +223,15 @@ function resetRef(ref) {
   }
 }
 
-// handle messages from UI
 figma.ui.onmessage = msg => {
   if (msg.type === 'change-hsl-group') {
-    const v = msg.component === 'h' ? msg.value/360 : msg.value/100;
+    const v = msg.component==='h'? msg.value/360: msg.value/100;
     (groupMap[msg.groupIndex]||[]).forEach(r=>applyRef(r,msg.component,v));
     figma.ui.postMessage({ type:'update-subsets', subsets:getCurrentSubsets() });
 
   } else if (msg.type === 'change-hsl-subset') {
-    const v = msg.component === 'h' ? msg.value/360 : msg.value/100;
-    const refs = groupMap[msg.groupIndex]||[];
-    const ref  = refs[msg.subsetIndex];
+    const v = msg.component==='h'? msg.value/360: msg.value/100;
+    const refs = groupMap[msg.groupIndex]||[]; const ref = refs[msg.subsetIndex];
     if (ref) applyRef(ref, msg.component, v);
     figma.ui.postMessage({ type:'update-subsets', subsets:getCurrentSubsets() });
 
