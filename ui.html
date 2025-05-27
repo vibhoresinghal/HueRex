@@ -393,23 +393,50 @@ d.onmouseleave = () => {
     selectCluster(0);
 
   } else if (msg.type === 'update-subsets') {
-    subsets = msg.subsets;
+  subsets = msg.subsets;
 
-    if (isExpanded && selectedCluster >= 0) {
-      if (selectedSubset >= 0) {
-        // only update the single selected subset swatch
-        const c      = subsets[selectedCluster][selectedSubset];
-        const swatch = sub.children[selectedSubset];
-        if (swatch) {
-          swatch.style.background =
-            `hsl(${c.h.toFixed(0)},${(c.s*100).toFixed(0)}%,${(c.l*100).toFixed(0)}%)`;
-        }
-      } else {
-        // no subset selected → redraw all subset swatches
-        showSubset(selectedCluster);
+  // 1) repaint the group swatches from the new subset HSLs:
+  subsets.forEach((subs, gi) => {
+    // skip the special “All” gradient button
+    if (colors[gi].all) return;
+
+    // compute the average HSL of this cluster’s subsets
+    let sum = { h:0, s:0, l:0 };
+    subs.forEach(c => { sum.h += c.h; sum.s += c.s; sum.l += c.l; });
+    const avg = {
+      h: sum.h / subs.length,
+      s: sum.s / subs.length,
+      l: sum.l / subs.length
+    };
+
+    // store back
+    colors[gi] = avg;
+
+    // repaint that swatch element
+    const swEl = sw.children[gi];
+    if (swEl) {
+      swEl.style.background =
+        `hsl(${avg.h.toFixed(0)},${(avg.s*100).toFixed(0)}%,${(avg.l*100).toFixed(0)}%)`;
+    }
+  });
+
+  // 2) update the subset row as before:
+  if (isExpanded && selectedCluster >= 0) {
+    if (selectedSubset >= 0) {
+      // update just the one sub‐swatch
+      const c      = subsets[selectedCluster][selectedSubset];
+      const swEl2  = sub.children[selectedSubset];
+      if (swEl2) {
+        swEl2.style.background =
+          `hsl(${c.h.toFixed(0)},${(c.s*100).toFixed(0)}%,${(c.l*100).toFixed(0)}%)`;
       }
+    } else {
+      // or redraw them all
+      showSubset(selectedCluster);
     }
   }
+}
+
 };
 
   </script>

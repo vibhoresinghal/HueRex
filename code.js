@@ -269,48 +269,105 @@ figma.ui.onmessage = msg => {
     });
 
   } else if (msg.type === 'change-hsl-subset') {
-    const v    = msg.component === 'h' ? msg.value / 360 : msg.value / 100;
-    const refs = groupMap[msg.groupIndex] || [];
-    const ref  = refs[msg.subsetIndex];
-    if (ref) applyRef(ref, msg.component, v);
+    const v     = msg.component === 'h' ? msg.value / 360 : msg.value / 100;
+    // figure out which exact HSL we’re targeting
+    const allSubsets = getCurrentSubsets();
+    const targetHSL  = allSubsets[msg.groupIndex][msg.subsetIndex];
+    // apply to every matching ref in the cluster
+    (groupMap[msg.groupIndex] || []).forEach(ref => {
+      const node = figma.getNodeById(ref.nodeId);
+      if (!node) return;
+      // pull its current color
+      let c;
+      if (ref.type === 'effects') {
+        c = node.effects[ref.index].color;
+      } else {
+        const p = node[ref.type][ref.index];
+        c = p.type === 'SOLID'
+          ? p.color
+          : p.gradientStops[ref.stopIndex].color;
+      }
+      const hsl = rgbToHsl(c.r, c.g, c.b);
+      const h   = hsl.h * 360, s = hsl.s, l = hsl.l;
+      // if it matches our subset HSL within tolerance:
+      if (
+        Math.abs(h - targetHSL.h) < 1 &&
+        Math.abs(s - targetHSL.s) < 0.01 &&
+        Math.abs(l - targetHSL.l) < 0.01
+      ) {
+        applyRef(ref, msg.component, v);
+      }
+    });
     figma.ui.postMessage({
       type:    'update-subsets',
       subsets: getCurrentSubsets()
     });
 
   } else if (msg.type === 'reset-group') {
-    (groupMap[msg.groupIndex] || []).forEach(ref => resetRef(ref));
+    (groupMap[msg.groupIndex] || [])
+      .forEach(ref => resetRef(ref));
     handleSelectionChange();
 
   } else if (msg.type === 'reset-subset') {
-    const ref = (groupMap[msg.groupIndex] || [])[msg.subsetIndex];
-    if (ref) resetRef(ref);
+    // 1. figure out which HSL we want to reset
+    const subsetsArr = getCurrentSubsets();
+    const targetHSL  = subsetsArr[msg.groupIndex][msg.subsetIndex];
+  
+    // 2. reset every ref in this cluster whose current HSL matches
+    (groupMap[msg.groupIndex] || []).forEach(ref => {
+      const node = figma.getNodeById(ref.nodeId);
+      if (!node) return;
+  
+      // pull its current color
+      let c;
+      if (ref.type === 'effects') {
+        c = node.effects[ref.index].color;
+      } else {
+        const p = node[ref.type][ref.index];
+        c = p.type === 'SOLID'
+          ? p.color
+          : p.gradientStops[ref.stopIndex].color;
+      }
+  
+      // convert to HSL
+      const hsl = rgbToHsl(c.r, c.g, c.b);
+      const h   = hsl.h * 360,
+            s   = hsl.s,
+            l   = hsl.l;
+  
+      // if it matches our subset HSL (within a small tolerance), reset it
+      if (
+        Math.abs(h - targetHSL.h) < 1 &&
+        Math.abs(s - targetHSL.s) < 0.01 &&
+        Math.abs(l - targetHSL.l) < 0.01
+      ) {
+        resetRef(ref);
+      }
+    });
+  
+    // 3. refresh everything
     handleSelectionChange();
-
-  } else if (msg.type === 'hover-subset') {
-    // highlight all nodes matching this subset color
-    const subsetsArray = getCurrentSubsets();
-    const targetHSL   = subsetsArray[msg.groupIndex][msg.subsetIndex];
-    const refs        = groupMap[msg.groupIndex] || [];
-    const nodeIds     = new Set();
-
+  }
+   else if (msg.type === 'hover-subset') {
+    // highlight all nodes whose current color still matches this subset
+    const subsetsArr = getCurrentSubsets();
+    const targetHSL  = subsetsArr[msg.groupIndex][msg.subsetIndex];
+    const refs       = groupMap[msg.groupIndex] || [];
+    const nodeIds    = new Set();
     for (const ref of refs) {
       const node = figma.getNodeById(ref.nodeId);
       if (!node) continue;
-
-      let color;
+      let c;
       if (ref.type === 'effects') {
-        color = node.effects[ref.index].color;
+        c = node.effects[ref.index].color;
       } else {
-        const paint = node[ref.type][ref.index];
-        color = paint.type === 'SOLID'
-          ? paint.color
-          : paint.gradientStops[ref.stopIndex].color;
+        const p = node[ref.type][ref.index];
+        c = p.type === 'SOLID'
+          ? p.color
+          : p.gradientStops[ref.stopIndex].color;
       }
-
-      const hsl = rgbToHsl(color.r, color.g, color.b);
+      const hsl = rgbToHsl(c.r, c.g, c.b);
       const h   = hsl.h * 360, s = hsl.s, l = hsl.l;
-
       if (
         Math.abs(h - targetHSL.h) < 5 &&
         Math.abs(s - targetHSL.s) < 0.05 &&
@@ -319,7 +376,6 @@ figma.ui.onmessage = msg => {
         nodeIds.add(ref.nodeId);
       }
     }
-
     const nodesToHighlight = Array.from(nodeIds)
       .map(id => figma.getNodeById(id))
       .filter(n => n);
@@ -328,4 +384,5 @@ figma.ui.onmessage = msg => {
   } else if (msg.type === 'unhover-subset') {
     clearHighlights();
   }
-};
+};  // ← make sure this closing brace & semicolon are here
+
