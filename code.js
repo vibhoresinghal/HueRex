@@ -386,5 +386,9 @@ figma.ui.onmessage = msg => {
   } else if (msg.type === 'unhover-subset') {
     clearHighlights();
   }
+  else if (msg.type === 'refresh-groups') {
+    // re-cluster & redraw everything
+    handleSelectionChange();
+  }
 };  // ← make sure this closing brace & semicolon are here
 
