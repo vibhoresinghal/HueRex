@@ -158,9 +158,11 @@ function highlightNodes(nodes) {
     rect.x = bbox.x;
     rect.y = bbox.y;
     rect.resize(bbox.width, bbox.height);
-    rect.fills = [];
-    rect.strokes = [{ type: 'SOLID', color: { r: 1, g: 0, b: 0 } }];
-    rect.strokeWeight = 2;
+    rect.fills = [{ type: 'SOLID', color: { r: 1, g: 0, b: 0 }, opacity: 0.12 }];
+    rect.strokes = [{ type: 'SOLID', color: { r: 1, g: 0, b: 0 }, opacity: 0.32 }];
+    rect.strokeWeight = 1;
+    /*rect.strokeCap = 'ROUND';*/
+    rect.dashPattern = [0, ];
     figma.currentPage.appendChild(rect);
     highlightRects.push(rect);
   }
