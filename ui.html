@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Color Groups</title>
+  <title>HueRex</title>
   <style>
     html, body {
       margin: 0; padding: 0;
@@ -11,7 +11,13 @@
       font-family: sans-serif;
       position: relative;
     }
+    #helperOverlay {
+      display: flex;    /* show the overlay immediately */
+    }
 
+    #uiContainer {
+      display: none;    /* hide all of the swatches, sliders, buttons, etc. */
+    }
     /* helper overlay */
     #helperOverlay {
       position: absolute;
@@ -24,19 +30,17 @@
       background: #FFFCF5;
       z-index: 10;
     }
-    #helperOverlay svg {
-      width: 64px; height: 64px;
-      margin-bottom: 12px;
-      fill: none;
-      stroke: #666;
-      stroke-width: 2;
-      stroke-dasharray: 4 2;
-    }
+ 
     #helperOverlay .helper-text {
+      z-index: 11;
+      position: absolute;
+      top: 68%;
+      left: 50%;
+      transform: translate(-50%, -50%);
       font-size: 14px;
       color: #666;
       text-align: center;
-      padding: 0 16px;
+     margin-bottom: 16px;
     }
       #subsets .helper-text {
         font-size: 12px;    /* your new smaller size */
@@ -190,7 +194,7 @@
 <body>
   <!-- full-screen helper overlay -->
   <div id="helperOverlay">
-    <img src="https://raw.githubusercontent.com/vibhoresinghal/HueRex/refs/heads/main/empty_state.svg" alt="Helper Overlay Image"/>
+    <img src="https://raw.githubusercontent.com/vibhoresinghal/HueRex/refs/heads/main/Assets/empty_state.svg" alt="Helper Overlay Image"/>
     <div class="helper-text">Select a layer to begin</div>
   </div>
 
