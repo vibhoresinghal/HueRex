@@ -14,6 +14,7 @@ function rgbToHsl(r, g, b) {
   }
   return { h: h, s: s, l: l };
 }
+
 function hslToRgb(h, s, l) {
   if (s === 0) return { r: l, g: l, b: l };
   function hue2rgb(p, q, t) {
@@ -65,7 +66,6 @@ function recordOriginals(node) {
     node.children.forEach(recordOriginals);
   }
 }
-
 
 // Build hue clusters (±15°), dedupe, skip hidden
 function buildGroups() {
@@ -119,19 +119,21 @@ function buildGroups() {
   return unique;
 }
 
-function getCurrentSubsets() {
-  return groupMap.map(refs => {
-    var arr = refs.map(ref => {
-      var node = figma.getNodeById(ref.nodeId);
-      if (!node) return null;
+// ---- CHANGE: make this function async and use getNodeByIdAsync ----
+async function getCurrentSubsets() {
+  return Promise.all(groupMap.map(async refs => {
+    var arr = [];
+    for (const ref of refs) {
+      var node = await figma.getNodeByIdAsync(ref.nodeId);
+      if (!node) continue;
       var c = ref.type === 'effects'
             ? node.effects[ref.index].color
             : (node[ref.type][ref.index].type === 'SOLID'
                ? node[ref.type][ref.index].color
                : node[ref.type][ref.index].gradientStops[ref.stopIndex].color);
       var hsl = rgbToHsl(c.r, c.g, c.b);
-      return { h: hsl.h*360, s: hsl.s, l: hsl.l };
-    }).filter(Boolean);
+      arr.push({ h: hsl.h*360, s: hsl.s, l: hsl.l });
+    }
     var seen = {};
     return arr.filter(c => {
       var key = `${c.h.toFixed(1)}_${c.s.toFixed(3)}_${c.l.toFixed(3)}`;
@@ -139,8 +141,9 @@ function getCurrentSubsets() {
       seen[key] = true;
       return true;
     });
-  });
+  }));
 }
+
 // At top of code.js, add:
 let highlightRects = [];
 
@@ -162,37 +165,40 @@ function highlightNodes(nodes) {
     rect.strokes = [{ type: 'SOLID', color: { r: 1, g: 0, b: 0 }, opacity: 0.32 }];
     rect.strokeWeight = 1;
     /*rect.strokeCap = 'ROUND';*/
-    rect.dashPattern = [0, ];
+    rect.dashPattern = [0];
     figma.currentPage.appendChild(rect);
     highlightRects.push(rect);
   }
 }
 
-
-function handleSelectionChange() {
+// ---- CHANGE: make handleSelectionChange async and await getCurrentSubsets ----
+async function handleSelectionChange() {
   var sel = figma.currentPage.selection;
   originalPaints = {}; groupMap = [];
   if (!sel.length) {
-    figma.ui.postMessage({ type:'selection-colors', colors: [], subsets: [] });
+    figma.ui.postMessage({ type: 'selection-colors', colors: [], subsets: [] });
     return;
   }
   sel.forEach(recordOriginals);
-  var colors = buildGroups(), subsets = getCurrentSubsets();
-  var zipped = colors.map((c,i)=>({color:c, subset:subsets[i], refs:groupMap[i]}));
-  zipped.sort((a,b)=> b.color.l - a.color.l);
-  colors   = zipped.map(z=>z.color);
-  subsets  = zipped.map(z=>z.subset);
-  groupMap = zipped.map(z=>z.refs);
+  var colors = buildGroups();
+  var subsets = await getCurrentSubsets();
+  var zipped = colors.map((c, i) => ({ color: c, subset: subsets[i], refs: groupMap[i] }));
+  zipped.sort((a, b) => b.color.l - a.color.l);
+  colors   = zipped.map(z => z.color);
+  subsets  = zipped.map(z => z.subset);
+  groupMap = zipped.map(z => z.refs);
 
-  figma.ui.postMessage({ type:'selection-colors', colors, subsets });
+  figma.ui.postMessage({ type: 'selection-colors', colors, subsets });
 }
 
-figma.showUI(__html__, { width:320, height:260 });
+figma.showUI(__html__, { width: 320, height: 260 });
 figma.on('selectionchange', handleSelectionChange);
+// Initial call (no await needed)
 handleSelectionChange();
 
-function applyRef(ref, comp, v) {
-  const node = figma.getNodeById(ref.nodeId);
+// ---- CHANGE: make applyRef async and use getNodeByIdAsync AND async style setters ----
+async function applyRef(ref, comp, v) {
+  const node = await figma.getNodeByIdAsync(ref.nodeId);
   if (!node) return;
 
   // pull existing color
@@ -201,10 +207,9 @@ function applyRef(ref, comp, v) {
     const effs = clonePaints(node.effects), e = effs[ref.index];
     hsl = rgbToHsl(e.color.r, e.color.g, e.color.b);
     hsl[comp] = v;
-    // —— NEW: if you’re adjusting H on a perfectly desaturated color, give it some S
+    // If hue on desaturated, give some saturation
     if (comp === 'h' && hsl.s === 0) {
-      hsl.s = 0.5; // 50% sat, adjust as you like
-      // inform the UI so its slider catches that change:
+      hsl.s = 0.5;
       figma.ui.postMessage({ type: 'force-saturation', value: Math.round(50) });
     }
     rgb = hslToRgb(hsl.h, hsl.s, hsl.l);
@@ -234,17 +239,19 @@ function applyRef(ref, comp, v) {
       stop.color = { r: rgb.r, g: rgb.g, b: rgb.b, a: stop.color.a };
     }
     if (ref.type === 'fills') {
-      node.fillStyleId = '';
+      // Async setter for dynamic-page access
+      await node.setFillStyleIdAsync('');
       node.fills = paints;
     } else {
-      node.strokeStyleId = '';
+      await node.setStrokeStyleIdAsync('');
       node.strokes = paints;
     }
   }
 }
 
-function resetRef(ref) {
-  var node = figma.getNodeById(ref.nodeId);
+// ---- CHANGE: make resetRef async and use getNodeByIdAsync AND async style setters ----
+async function resetRef(ref) {
+  var node = await figma.getNodeByIdAsync(ref.nodeId);
   if (!node) return;
   if (ref.type === 'effects') {
     node.effects = clonePaints(originalPaints[node.id].effects);
@@ -253,33 +260,35 @@ function resetRef(ref) {
         orig   = originalPaints[node.id][ref.type];
     paints[ref.index] = clonePaints(orig)[ref.index];
     if (ref.type === 'fills') {
-      node.fillStyleId = ''; node.fills   = paints;
+      await node.setFillStyleIdAsync('');
+      node.fills   = paints;
     } else {
-      node.strokeStyleId = ''; node.strokes = paints;
+      await node.setStrokeStyleIdAsync('');
+      node.strokes = paints;
     }
   }
 }
 
-figma.ui.onmessage = msg => {
+// ---- CHANGE: make onmessage handler async ----
+figma.ui.onmessage = async (msg) => {
   if (msg.type === 'change-hsl-group') {
     const v    = msg.component === 'h' ? msg.value / 360 : msg.value / 100;
     const refs = groupMap[msg.groupIndex] || [];
+    // Fire off each applyRef without awaiting serially:
     refs.forEach(ref => applyRef(ref, msg.component, v));
+    const subsets = await getCurrentSubsets();
     figma.ui.postMessage({
       type:    'update-subsets',
-      subsets: getCurrentSubsets()
+      subsets: subsets
     });
 
   } else if (msg.type === 'change-hsl-subset') {
     const v     = msg.component === 'h' ? msg.value / 360 : msg.value / 100;
-    // figure out which exact HSL we’re targeting
-    const allSubsets = getCurrentSubsets();
+    const allSubsets = await getCurrentSubsets();
     const targetHSL  = allSubsets[msg.groupIndex][msg.subsetIndex];
-    // apply to every matching ref in the cluster
-    (groupMap[msg.groupIndex] || []).forEach(ref => {
-      const node = figma.getNodeById(ref.nodeId);
-      if (!node) return;
-      // pull its current color
+    for (const ref of (groupMap[msg.groupIndex] || [])) {
+      const node = await figma.getNodeByIdAsync(ref.nodeId);
+      if (!node) continue;
       let c;
       if (ref.type === 'effects') {
         c = node.effects[ref.index].color;
@@ -291,36 +300,32 @@ figma.ui.onmessage = msg => {
       }
       const hsl = rgbToHsl(c.r, c.g, c.b);
       const h   = hsl.h * 360, s = hsl.s, l = hsl.l;
-      // if it matches our subset HSL within tolerance:
       if (
         Math.abs(h - targetHSL.h) < 1 &&
         Math.abs(s - targetHSL.s) < 0.01 &&
         Math.abs(l - targetHSL.l) < 0.01
       ) {
-        applyRef(ref, msg.component, v);
+        await applyRef(ref, msg.component, v);
       }
-    });
+    }
+    const subsets2 = await getCurrentSubsets();
     figma.ui.postMessage({
       type:    'update-subsets',
-      subsets: getCurrentSubsets()
+      subsets: subsets2
     });
 
   } else if (msg.type === 'reset-group') {
-    (groupMap[msg.groupIndex] || [])
-      .forEach(ref => resetRef(ref));
-    handleSelectionChange();
+    for (const ref of (groupMap[msg.groupIndex] || [])) {
+      await resetRef(ref);
+    }
+    await handleSelectionChange();
 
   } else if (msg.type === 'reset-subset') {
-    // 1. figure out which HSL we want to reset
-    const subsetsArr = getCurrentSubsets();
+    const subsetsArr = await getCurrentSubsets();
     const targetHSL  = subsetsArr[msg.groupIndex][msg.subsetIndex];
-  
-    // 2. reset every ref in this cluster whose current HSL matches
-    (groupMap[msg.groupIndex] || []).forEach(ref => {
-      const node = figma.getNodeById(ref.nodeId);
-      if (!node) return;
-  
-      // pull its current color
+    for (const ref of (groupMap[msg.groupIndex] || [])) {
+      const node = await figma.getNodeByIdAsync(ref.nodeId);
+      if (!node) continue;
       let c;
       if (ref.type === 'effects') {
         c = node.effects[ref.index].color;
@@ -330,34 +335,25 @@ figma.ui.onmessage = msg => {
           ? p.color
           : p.gradientStops[ref.stopIndex].color;
       }
-  
-      // convert to HSL
       const hsl = rgbToHsl(c.r, c.g, c.b);
-      const h   = hsl.h * 360,
-            s   = hsl.s,
-            l   = hsl.l;
-  
-      // if it matches our subset HSL (within a small tolerance), reset it
+      const h   = hsl.h * 360, s = hsl.s, l = hsl.l;
       if (
         Math.abs(h - targetHSL.h) < 1 &&
         Math.abs(s - targetHSL.s) < 0.01 &&
         Math.abs(l - targetHSL.l) < 0.01
       ) {
-        resetRef(ref);
+        await resetRef(ref);
       }
-    });
-  
-    // 3. refresh everything
-    handleSelectionChange();
-  }
-   else if (msg.type === 'hover-subset') {
-    // highlight all nodes whose current color still matches this subset
-    const subsetsArr = getCurrentSubsets();
+    }
+    await handleSelectionChange();
+
+  } else if (msg.type === 'hover-subset') {
+    const subsetsArr = await getCurrentSubsets();
     const targetHSL  = subsetsArr[msg.groupIndex][msg.subsetIndex];
     const refs       = groupMap[msg.groupIndex] || [];
     const nodeIds    = new Set();
     for (const ref of refs) {
-      const node = figma.getNodeById(ref.nodeId);
+      const node = await figma.getNodeByIdAsync(ref.nodeId);
       if (!node) continue;
       let c;
       if (ref.type === 'effects') {
@@ -378,17 +374,62 @@ figma.ui.onmessage = msg => {
         nodeIds.add(ref.nodeId);
       }
     }
-    const nodesToHighlight = Array.from(nodeIds)
-      .map(id => figma.getNodeById(id))
-      .filter(n => n);
+    const nodesToHighlight = [];
+    for (const id of nodeIds) {
+      const n = await figma.getNodeByIdAsync(id);
+      if (n) nodesToHighlight.push(n);
+    }
     highlightNodes(nodesToHighlight);
+
+  } else if (msg.type === 'set-hex') {
+    const { groupIndex, subsetIndex, hex } = msg;
+    const r8 = parseInt(hex.slice(1,3), 16) / 255;
+    const g8 = parseInt(hex.slice(3,5), 16) / 255;
+    const b8 = parseInt(hex.slice(5,7), 16) / 255;
+    const newHSL = rgbToHsl(r8, g8, b8);
+    const vH = newHSL.h, vS = newHSL.s, vL = newHSL.l;
+
+    if (subsetIndex < 0) {
+      for (const ref of (groupMap[groupIndex] || [])) {
+        await applyRef(ref, 'h', vH);
+        await applyRef(ref, 's', vS);
+        await applyRef(ref, 'l', vL);
+      }
+    } else {
+      const oldSubsets = await getCurrentSubsets();
+      const targetHSL  = oldSubsets[groupIndex][subsetIndex];
+      const epsH = 1, epsS = 0.01, epsL = 0.01;
+      for (const ref of (groupMap[groupIndex] || [])) {
+        const node = await figma.getNodeByIdAsync(ref.nodeId);
+        if (!node) continue;
+        let c;
+        if (ref.type === 'effects') {
+          c = node.effects[ref.index].color;
+        } else {
+          const p = node[ref.type][ref.index];
+          c = p.type === 'SOLID'
+            ? p.color
+            : p.gradientStops[ref.stopIndex].color;
+        }
+        const cur = rgbToHsl(c.r, c.g, c.b);
+        const h = cur.h * 360, s = cur.s, l = cur.l;
+        if (
+          Math.abs(h - targetHSL.h) < epsH &&
+          Math.abs(s - targetHSL.s) < epsS &&
+          Math.abs(l - targetHSL.l) < epsL
+        ) {
+          await applyRef(ref, 'h', vH);
+          await applyRef(ref, 's', vS);
+          await applyRef(ref, 'l', vL);
+        }
+      }
+    }
+    await handleSelectionChange();
 
   } else if (msg.type === 'unhover-subset') {
     clearHighlights();
-  }
-  else if (msg.type === 'refresh-groups') {
-    // re-cluster & redraw everything
-    handleSelectionChange();
-  }
-};  // ← make sure this closing brace & semicolon are here
 
+  } else if (msg.type === 'refresh-groups') {
+    await handleSelectionChange();
+  }
+};  // ← closing brace & semicolon

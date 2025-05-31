@@ -1,9 +1,15 @@
 {
   "name": "HueRex",
-  "id": "com.yourcompany.color-groups",
+  "id": "1510039474871692985",
   "api": "1.0.0",
   "main": "code.js",
   "ui": "ui.html",
   "editorType": ["figma"],
-  "enableProposedApi": false
+  "enableProposedApi": false,
+  "documentAccess": "dynamic-page",
+  "networkAccess": {
+  "allowedDomains": [
+    "https://raw.githubusercontent.com"
+  ]
+}
 }
