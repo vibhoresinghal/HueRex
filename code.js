@@ -272,15 +272,23 @@ async function resetRef(ref) {
 // ---- CHANGE: make onmessage handler async ----
 figma.ui.onmessage = async (msg) => {
   if (msg.type === 'change-hsl-group') {
-    const v    = msg.component === 'h' ? msg.value / 360 : msg.value / 100;
+    const comp     = msg.component;              // 'h' | 's' | 'l'
+    const rawValue = msg.value;                  // 0–360 for hue, 0–100 for sat/light
+    const v        = (comp === 'h')
+                     ? rawValue / 360
+                     : rawValue / 100;
+
+    // 1) Grab exactly the refs in this cluster:
     const refs = groupMap[msg.groupIndex] || [];
-    // Fire off each applyRef without awaiting serially:
-    refs.forEach(ref => applyRef(ref, msg.component, v));
+
+    // 2) For each ref (which may be a gradientStop or a solid), call applyRef(ref,…)
+    for (const ref of refs) {
+      await applyRef(ref, comp, v);
+    }
+
+    // 3) Recompute subsets and send updated subsets back:
     const subsets = await getCurrentSubsets();
-    figma.ui.postMessage({
-      type:    'update-subsets',
-      subsets: subsets
-    });
+    figma.ui.postMessage({ type: 'update-subsets', subsets });
 
   } else if (msg.type === 'change-hsl-subset') {
     const v     = msg.component === 'h' ? msg.value / 360 : msg.value / 100;

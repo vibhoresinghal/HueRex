@@ -9,7 +9,7 @@
   "documentAccess": "dynamic-page",
   "networkAccess": {
   "allowedDomains": [
-    "https://raw.githubusercontent.com"
-  ]
-}
+      "https://raw.githubusercontent.com"
+    ]
+  }
 }
