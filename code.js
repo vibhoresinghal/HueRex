@@ -172,7 +172,7 @@ function highlightNodes(nodes) {
 }
 
 // ---- CHANGE: make handleSelectionChange async and await getCurrentSubsets ----
-async function handleSelectionChange() {
+async function handleSelectionChange(selectedGroupIndex) {
   var sel = figma.currentPage.selection;
   originalPaints = {}; groupMap = [];
   if (!sel.length) {
@@ -188,7 +188,7 @@ async function handleSelectionChange() {
   subsets = zipped.map(z => z.subset);
   groupMap = zipped.map(z => z.refs);
 
-  figma.ui.postMessage({ type: 'selection-colors', colors, subsets });
+  figma.ui.postMessage({ type: 'selection-colors', colors, subsets, selectedGroupIndex });
 }
 
 figma.showUI(__html__, { width: 320, height: 260 });
@@ -355,8 +355,12 @@ figma.ui.onmessage = async (msg) => {
   } else if (msg.type === 'stop-hsl-change') {
     // Clear the stored initial values
     originalSliderValues = {};
-    await handleSelectionChange(); // Refresh UI to show final state
-
+    // Refresh UI to show final state, but tell it which cluster was selected.
+    // We need to rebuild groups to get the final state of all colors.
+    const sel = figma.currentPage.selection;
+    if (sel.length) {
+      await handleSelectionChange(msg.groupIndex);
+    }
   } else if (msg.type === 'reset-group') {
     for (const ref of (groupMap[msg.groupIndex] || [])) {
       await resetRef(ref);

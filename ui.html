@@ -382,7 +382,7 @@ d.onmouseleave = () => {
       parent.postMessage({ pluginMessage: { type: 'start-hsl-change', groupIndex: selectedCluster }}, '*');
     };
     sR.oninput = () => { sN.value = sR.value; post(selectedSubset >= 0 ? 'change-hsl-subset' : 'change-hsl-group', 's', +sR.value, startSliderValue); };
-    sR.onmouseup = () => { startSliderValue = null; parent.postMessage({ pluginMessage: { type: 'stop-hsl-change' }}, '*'); };
+    sR.onmouseup = () => { startSliderValue = null; parent.postMessage({ pluginMessage: { type: 'stop-hsl-change', groupIndex: selectedCluster }}, '*'); };
     sN.onchange = () => { sR.value = sN.value; post(selectedSubset >= 0 ? 'change-hsl-subset' : 'change-hsl-group', 's', +sN.value); };
 
     lR.onmousedown = () => {
@@ -390,7 +390,7 @@ d.onmouseleave = () => {
       parent.postMessage({ pluginMessage: { type: 'start-hsl-change', groupIndex: selectedCluster }}, '*');
     };
     lR.oninput = () => { lN.value = lR.value; post(selectedSubset >= 0 ? 'change-hsl-subset' : 'change-hsl-group', 'l', +lR.value, startSliderValue); };
-    lR.onmouseup = () => { startSliderValue = null; parent.postMessage({ pluginMessage: { type: 'stop-hsl-change' }}, '*'); };
+    lR.onmouseup = () => { startSliderValue = null; parent.postMessage({ pluginMessage: { type: 'stop-hsl-change', groupIndex: selectedCluster }}, '*'); };
     lN.onchange = () => { lR.value = lN.value; post(selectedSubset >= 0 ? 'change-hsl-subset' : 'change-hsl-group', 'l', +lN.value); };
 
     resetB.onclick = () => {
@@ -442,8 +442,8 @@ d.onmouseleave = () => {
       sw.appendChild(d);
     });
 
-    // select the first group by default
-    selectCluster(0);
+    // Select the previously selected group, or default to the first one.
+    selectCluster(msg.selectedGroupIndex !== undefined ? msg.selectedGroupIndex : 0);
 
   } else if (msg.type === 'update-subsets') {
   subsets = msg.subsets;
