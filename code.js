@@ -62,7 +62,11 @@ function recordOriginals(node) {
   }
 
   // recurse into children (including those inside masks)
-  if (node.children) {
+  // If it's a boolean operation, we've already recorded its paint,
+  // so we don't want to process its children's individual paints.
+  if (node.type === 'BOOLEAN_OPERATION') {
+    return;
+  } else if (node.children) {
     node.children.forEach(recordOriginals);
   }
 }

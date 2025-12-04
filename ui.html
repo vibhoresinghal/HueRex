@@ -77,6 +77,11 @@
     }
     #swatches::-webkit-scrollbar,
     #subsets::-webkit-scrollbar { display: none; }
+    #swatches.dragging, #subsets.dragging {
+      cursor: grabbing;
+      user-select: none;
+    }
+
 
     .swatch {
       flex: 0 0 42px; width: 42px; height: 28px;
@@ -253,6 +258,59 @@
     
     // ---- ADD: Variable to store the initial slider value for relative changes ----
     let startSliderValue = null;
+
+    // ---- ADD: Helper function to make an element scrollable via click-and-drag ----
+    function makeDraggable(element) {
+      let isDown = false;
+      let startX;
+      let scrollLeft;
+      let isDragging = false;
+
+      element.addEventListener('mousedown', (e) => {
+        // Only trigger for left mouse button and not on scrollbar
+        if (e.button !== 0 || e.target.tagName === 'INPUT') return;
+        isDown = true;
+        isDragging = false;
+        startX = e.pageX - element.offsetLeft;
+        scrollLeft = element.scrollLeft;
+        element.style.cursor = 'grabbing';
+      });
+
+      element.addEventListener('mouseleave', () => {
+        if (!isDown) return;
+        isDown = false;
+        element.classList.remove('dragging');
+        element.style.cursor = 'default';
+      });
+
+      element.addEventListener('mouseup', () => {
+        isDown = false;
+        element.classList.remove('dragging');
+        element.style.cursor = 'default';
+      });
+
+      element.addEventListener('mousemove', (e) => {
+        if (!isDown) return;
+        e.preventDefault();
+        const x = e.pageX - element.offsetLeft;
+        const walk = (x - startX); // The distance the mouse has moved
+        if (Math.abs(walk) > 5) { // Threshold to distinguish click from drag
+          isDragging = true;
+          element.classList.add('dragging');
+        }
+        if (isDragging) {
+          element.scrollLeft = scrollLeft - walk;
+        }
+      });
+
+      // Prevent click events on children during a drag
+      element.addEventListener('click', (e) => {
+        if (isDragging) {
+          e.stopPropagation();
+          isDragging = false;
+        }
+      }, true); // Use capture phase to stop click before it reaches children
+    }
 
     function setSliderBackgrounds(c) {
       // hue thumb: pure hue at full sat/50% light
@@ -495,6 +553,10 @@ const refreshB = document.getElementById('refresh-btn');
 refreshB.onclick = () => {
   parent.postMessage({ pluginMessage: { type: 'refresh-groups' } }, '*');
 };
+
+// ---- ADD: Apply draggable functionality to swatch containers ----
+makeDraggable(sw);
+makeDraggable(sub);
 
   </script>
 </body>
