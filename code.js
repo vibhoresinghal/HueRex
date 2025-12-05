@@ -535,10 +535,16 @@ function calculateNewColor(c, comp, v, delta, initialHSL) {
   let hsl;
   if (initialHSL && (comp === 's' || comp === 'l')) {
     hsl = { h: initialHSL.h, s: initialHSL.s, l: initialHSL.l };
-    hsl[comp] = Math.max(0, Math.min(1, initialHSL[comp] + delta));
+    const newValue = initialHSL[comp] + delta;
+    if (comp === 'l') {
+      hsl[comp] = Math.max(0.01, Math.min(0.99, newValue));
+    } else { // saturation
+      hsl[comp] = Math.max(0, Math.min(1, newValue));
+    }
   } else {
     hsl = rgbToHsl(c.r, c.g, c.b);
-    hsl[comp] = v;
+    // Also clamp absolute changes for lightness
+    hsl[comp] = comp === 'l' ? Math.max(0.01, Math.min(0.99, v)) : v;
   }
 
   if (comp === 'h' && hsl.s === 0) {
