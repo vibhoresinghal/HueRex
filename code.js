@@ -39,6 +39,19 @@ function clonePaints(arr) {
   return Array.isArray(arr) ? JSON.parse(JSON.stringify(arr)) : [];
 }
 
+// Helper: Ensure fonts are loaded for a text node
+async function ensureNodeFontsLoaded(node) {
+  if (node.type !== 'TEXT') return;
+  if (node.characters.length === 0) return;
+  if (node.fontName !== figma.mixed) {
+    await figma.loadFontAsync(node.fontName);
+  } else {
+    const segs = node.getStyledTextSegments(['fontName']);
+    const fonts = new Set(segs.map(s => JSON.stringify(s.fontName)));
+    await Promise.all(Array.from(fonts).map(f => figma.loadFontAsync(JSON.parse(f))));
+  }
+}
+
 var originalPaints = {}, groupMap = [];
 
 // Record paints & effects (skip hidden)
@@ -48,17 +61,29 @@ function recordOriginals(node) {
   // skip the mask layer itself, but not its children
   if (node.isMask) return;
 
+  const isMixedFills = node.type === 'TEXT' && node.fills === figma.mixed;
+
   // record this node’s fills, strokes, and effects if present
   if (
+    isMixedFills ||
     (node.fills !== undefined && node.fills !== figma.mixed) ||
     (node.strokes !== undefined && node.strokes !== figma.mixed) ||
     (node.effects && node.effects.length)
   ) {
-    originalPaints[node.id] = {
-      fills: clonePaints(node.fills),
-      strokes: clonePaints(node.strokes),
-      effects: clonePaints(node.effects)
-    };
+    const entry = {};
+    if (isMixedFills) {
+      entry.isMixedFills = true;
+      entry.segments = JSON.parse(JSON.stringify(node.getStyledTextSegments(['fills'])));
+    } else if (node.fills !== undefined) {
+      entry.fills = clonePaints(node.fills);
+    }
+    if (node.strokes !== undefined && node.strokes !== figma.mixed) {
+      entry.strokes = clonePaints(node.strokes);
+    }
+    if (node.effects && node.effects.length) {
+      entry.effects = clonePaints(node.effects);
+    }
+    originalPaints[node.id] = entry;
   }
 
   // recurse into children (including those inside masks)
@@ -92,21 +117,33 @@ function buildGroups() {
 
   Object.keys(originalPaints).forEach(nodeId => {
     var orig = originalPaints[nodeId];
-    ['fills', 'strokes'].forEach(type => {
-      (orig[type] || []).forEach((p, pi) => {
+    function processPaints(paints, type, segmentIndex = null) {
+      (paints || []).forEach((p, pi) => {
         if (p.visible === false) return;
+        const ref = { nodeId, type, index: pi, stopIndex: null };
+        if (segmentIndex !== null) ref.segmentIndex = segmentIndex;
+
         if (p.type === 'SOLID') {
-          cluster(rgbToHsl(p.color.r, p.color.g, p.color.b),
-            { nodeId, type, index: pi, stopIndex: null });
+          cluster(rgbToHsl(p.color.r, p.color.g, p.color.b), ref);
         } else if (p.type.indexOf('GRADIENT') === 0) {
           p.gradientStops.forEach((stop, si) => {
             if (stop.visible === false) return;
-            cluster(rgbToHsl(stop.color.r, stop.color.g, stop.color.b),
-              { nodeId, type, index: pi, stopIndex: si });
+            const sRef = Object.assign({}, ref, { stopIndex: si });
+            cluster(rgbToHsl(stop.color.r, stop.color.g, stop.color.b), sRef);
           });
         }
       });
-    });
+    }
+
+    if (orig.isMixedFills) {
+      orig.segments.forEach((seg, si) => {
+        processPaints(seg.fills, 'mixedTextFills', si);
+      });
+    } else {
+      processPaints(orig.fills, 'fills');
+    }
+    processPaints(orig.strokes, 'strokes');
+
     (orig.effects || []).forEach((eff, ei) => {
       if ((eff.type === 'DROP_SHADOW' || eff.type === 'INNER_SHADOW') &&
         eff.visible !== false) {
@@ -131,7 +168,13 @@ async function getCurrentSubsets() {
       var node = await figma.getNodeByIdAsync(ref.nodeId);
       if (!node) continue;
       let c;
-      const paint = node[ref.type] && node[ref.type][ref.index];
+      let paint;
+      if (ref.type === 'mixedTextFills') {
+        const segs = node.getStyledTextSegments(['fills']);
+        if (segs[ref.segmentIndex]) paint = segs[ref.segmentIndex].fills[ref.index];
+      } else {
+        paint = node[ref.type] && node[ref.type][ref.index];
+      }
       if (!paint) continue;
 
       if (ref.type === 'effects') {
@@ -212,7 +255,10 @@ async function applyRef(ref, comp, v, delta, initialValues) {
 
   // pull existing color
   let hsl, rgb;
-  const initialHSL = initialValues ? initialValues[`${ref.nodeId}-${ref.type}-${ref.index}-${ref.stopIndex}`] : null;
+  const key = ref.type === 'mixedTextFills'
+    ? `${ref.nodeId}-${ref.type}-${ref.segmentIndex}-${ref.index}-${ref.stopIndex}`
+    : `${ref.nodeId}-${ref.type}-${ref.index}-${ref.stopIndex}`;
+  const initialHSL = initialValues ? initialValues[key] : null;
 
   if (ref.type === 'effects') {
     const effs = clonePaints(node.effects), e = effs[ref.index];
@@ -233,7 +279,16 @@ async function applyRef(ref, comp, v, delta, initialValues) {
     node.effects = effs;
 
   } else {
-    const paints = clonePaints(node[ref.type]), p = paints[ref.index];
+    let paints;
+    if (ref.type === 'mixedTextFills') {
+      await ensureNodeFontsLoaded(node);
+      const origSeg = originalPaints[node.id].segments[ref.segmentIndex];
+      paints = clonePaints(node.getRangeFills(origSeg.start, origSeg.end));
+    } else {
+      paints = clonePaints(node[ref.type]);
+    }
+    const p = paints[ref.index];
+
     if (p.type === 'SOLID') {
       if (initialHSL && (comp === 's' || comp === 'l')) {
         hsl = { h: initialHSL.h, s: initialHSL.s, l: initialHSL.l };
@@ -266,7 +321,11 @@ async function applyRef(ref, comp, v, delta, initialValues) {
       rgb = hslToRgb(hsl.h, hsl.s, hsl.l);
       stop.color = { r: rgb.r, g: rgb.g, b: rgb.b, a: stop.color.a };
     }
-    if (ref.type === 'fills') {
+
+    if (ref.type === 'mixedTextFills') {
+      const origSeg = originalPaints[node.id].segments[ref.segmentIndex];
+      node.setRangeFills(origSeg.start, origSeg.end, paints);
+    } else if (ref.type === 'fills') {
       // Async setter for dynamic-page access
       await node.setFillStyleIdAsync('');
       node.fills = paints;
@@ -283,6 +342,12 @@ async function resetRef(ref) {
   if (!node) return;
   if (ref.type === 'effects') {
     node.effects = clonePaints(originalPaints[node.id].effects);
+  } else if (ref.type === 'mixedTextFills') {
+    await ensureNodeFontsLoaded(node);
+    const origSeg = originalPaints[node.id].segments[ref.segmentIndex];
+    const paints = clonePaints(node.getRangeFills(origSeg.start, origSeg.end));
+    paints[ref.index] = clonePaints(origSeg.fills)[ref.index];
+    node.setRangeFills(origSeg.start, origSeg.end, paints);
   } else {
     var paints = clonePaints(node[ref.type]),
       orig = originalPaints[node.id][ref.type];
@@ -312,11 +377,18 @@ figma.ui.onmessage = async (msg) => {
       let c;
       if (ref.type === 'effects') {
         c = node.effects[ref.index].color;
+      } else if (ref.type === 'mixedTextFills') {
+        const segs = node.getStyledTextSegments(['fills']);
+        const p = segs[ref.segmentIndex].fills[ref.index];
+        c = p.type === 'SOLID' ? p.color : p.gradientStops[ref.stopIndex].color;
       } else {
         const p = node[ref.type][ref.index];
         c = p.type === 'SOLID' ? p.color : p.gradientStops[ref.stopIndex].color;
       }
-      originalSliderValues[msg.groupIndex][`${ref.nodeId}-${ref.type}-${ref.index}-${ref.stopIndex}`] = rgbToHsl(c.r, c.g, c.b);
+      const key = ref.type === 'mixedTextFills'
+        ? `${ref.nodeId}-${ref.type}-${ref.segmentIndex}-${ref.index}-${ref.stopIndex}`
+        : `${ref.nodeId}-${ref.type}-${ref.index}-${ref.stopIndex}`;
+      originalSliderValues[msg.groupIndex][key] = rgbToHsl(c.r, c.g, c.b);
     }
 
   } else if (msg.type === 'change-hsl-group') {
@@ -337,22 +409,42 @@ figma.ui.onmessage = async (msg) => {
       if (!node) return;
 
       const nodeRefs = refsByNode[nodeId];
-      const clonedFills = clonePaints(node.fills);
-      const clonedStrokes = clonePaints(node.strokes);
-      const clonedEffects = clonePaints(node.effects);
+
+      const hasMixed = nodeRefs.some(r => r.type === 'mixedTextFills');
+      if (hasMixed) {
+        await ensureNodeFontsLoaded(node);
+      }
+
+      const clonedFills = (!hasMixed && node.fills !== figma.mixed && node.fills) ? clonePaints(node.fills) : [];
+      const clonedStrokes = (node.strokes !== undefined && node.strokes !== figma.mixed) ? clonePaints(node.strokes) : [];
+      const clonedEffects = (node.effects && node.effects.length) ? clonePaints(node.effects) : [];
 
       let fillsDirty = false, strokesDirty = false, effectsDirty = false;
 
       for (const ref of nodeRefs) {
-        const initialHSL = initialValues ? initialValues[`${ref.nodeId}-${ref.type}-${ref.index}-${ref.stopIndex}`] : null;
-        let targetPaintArray = ref.type === 'fills' ? clonedFills : (ref.type === 'strokes' ? clonedStrokes : clonedEffects);
+        const key = ref.type === 'mixedTextFills'
+          ? `${ref.nodeId}-${ref.type}-${ref.segmentIndex}-${ref.index}-${ref.stopIndex}`
+          : `${ref.nodeId}-${ref.type}-${ref.index}-${ref.stopIndex}`;
+        const initialHSL = initialValues ? initialValues[key] : null;
 
+        // Determine target array
+        let targetPaintArray = (ref.type === 'fills' || ref.type === 'mixedTextFills') ? clonedFills : (ref.type === 'strokes' ? clonedStrokes : clonedEffects);
         if (ref.type === 'effects') {
           effectsDirty = true;
           const e = targetPaintArray[ref.index];
           const { color: newColor } = calculateNewColor(e.color, msg.component, v, delta, initialHSL);
           e.color = Object.assign(newColor, { a: e.color.a });
-        } else { // fills or strokes
+        } else if (ref.type === 'mixedTextFills') {
+          const origSeg = originalPaints[nodeId].segments[ref.segmentIndex];
+          const currentFills = node.getRangeFills(origSeg.start, origSeg.end);
+          if (currentFills === figma.mixed) continue; // Should not happen if segments are valid
+          const paints = clonePaints(currentFills);
+          const p = paints[ref.index];
+          const target = p.type === 'SOLID' ? p : p.gradientStops[ref.stopIndex];
+          const { color: newColor } = calculateNewColor(target.color, msg.component, v, delta, initialHSL);
+          target.color = p.type === 'SOLID' ? newColor : Object.assign(newColor, { a: target.color.a });
+          node.setRangeFills(origSeg.start, origSeg.end, paints);
+        } else { // standard fills or strokes
           if (ref.type === 'fills') fillsDirty = true; else strokesDirty = true;
           const p = targetPaintArray[ref.index];
           const target = p.type === 'SOLID' ? p : p.gradientStops[ref.stopIndex];
@@ -381,6 +473,10 @@ figma.ui.onmessage = async (msg) => {
       let c;
       if (ref.type === 'effects') {
         c = node.effects[ref.index].color;
+      } else if (ref.type === 'mixedTextFills') {
+        const segs = node.getStyledTextSegments(['fills']);
+        const p = segs[ref.segmentIndex].fills[ref.index];
+        c = p.type === 'SOLID' ? p.color : p.gradientStops[ref.stopIndex].color;
       } else {
         const p = node[ref.type][ref.index];
         c = p.type === 'SOLID'
@@ -425,6 +521,10 @@ figma.ui.onmessage = async (msg) => {
       let c;
       if (ref.type === 'effects') {
         c = node.effects[ref.index].color;
+      } else if (ref.type === 'mixedTextFills') {
+        const segs = node.getStyledTextSegments(['fills']);
+        const p = segs[ref.segmentIndex].fills[ref.index];
+        c = p.type === 'SOLID' ? p.color : p.gradientStops[ref.stopIndex].color;
       } else {
         const p = node[ref.type][ref.index];
         if (p.type !== 'SOLID' && (!p.gradientStops || !p.gradientStops[ref.stopIndex])) continue;
@@ -455,6 +555,10 @@ figma.ui.onmessage = async (msg) => {
       let c;
       if (ref.type === 'effects') {
         c = node.effects[ref.index].color;
+      } else if (ref.type === 'mixedTextFills') {
+        const segs = node.getStyledTextSegments(['fills']);
+        const p = segs[ref.segmentIndex].fills[ref.index];
+        c = p.type === 'SOLID' ? p.color : p.gradientStops[ref.stopIndex].color;
       } else {
         const p = node[ref.type][ref.index];
         c = p.type === 'SOLID'
@@ -502,6 +606,10 @@ figma.ui.onmessage = async (msg) => {
         let c;
         if (ref.type === 'effects') {
           c = node.effects[ref.index].color;
+        } else if (ref.type === 'mixedTextFills') {
+          const segs = node.getStyledTextSegments(['fills']);
+          const p = segs[ref.segmentIndex].fills[ref.index];
+          c = p.type === 'SOLID' ? p.color : p.gradientStops[ref.stopIndex].color;
         } else {
           const p = node[ref.type][ref.index];
           c = p.type === 'SOLID'
