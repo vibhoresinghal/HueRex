@@ -494,7 +494,7 @@ figma.ui.onmessage = async (msg) => {
       originalSliderValues[msg.groupIndex][key] = rgbToHsl(c.r, c.g, c.b);
     }
 
-  } else if (msg.type === 'change-hsl-group') {
+  } else if (msg.type === 'change-hsl-group' || msg.type === 'change-hsl-group-fast') {
     const v = msg.component === 'h' ? msg.value / 360 : msg.value / 100;
     const refs = groupMap[msg.groupIndex] || [];
     const delta = (msg.component === 's' || msg.component === 'l') ? (msg.value - msg.startValue) / 100 : 0;
@@ -580,11 +580,15 @@ figma.ui.onmessage = async (msg) => {
     });
 
     await Promise.all(promises);
-    const subsets = await getCurrentSubsets();
-    figma.ui.postMessage({
-      type: 'update-subsets',
-      subsets: subsets
-    });
+
+    // Only recalculate subsets on the final update (not during fast drag updates)
+    if (msg.type === 'change-hsl-group') {
+      const subsets = await getCurrentSubsets();
+      figma.ui.postMessage({
+        type: 'update-subsets',
+        subsets: subsets
+      });
+    }
 
   } else if (msg.type === 'change-hsl-subset') {
     // NOTE: This logic for individual subset colors remains an absolute change.

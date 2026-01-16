@@ -1,42 +1,51 @@
 <!DOCTYPE html>
 <html>
+
 <head>
   <meta charset="UTF-8">
   <title>HueRex</title>
   <!-- Google Fonts: Inter -->
-  <link
-  href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
-  rel="stylesheet"
-  />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
-    html, body {
-      margin: 0; padding: 0;
-      width: 100%; height: 100%;
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
       overflow: hidden;
       font-family: 'Inter', sans-serif;
       position: relative;
     }
 
     #uiContainer {
-      display: none;    /* hide all of the swatches, sliders, buttons, etc. */
+      display: none;
+      /* hide all of the swatches, sliders, buttons, etc. */
     }
+
     /* helper overlay */
     #helperOverlay {
       position: absolute;
-      top: 0; left: 0;
-      width: 100%; height: 100%;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
       display: flex;
       align-items: center;
       justify-content: center;
       flex-direction: column;
       background: #FFFCF5;
       z-index: 10;
-      -webkit-user-drag: none; /* Chrome/Safari */
-      user-drag: none;         /* future spec */
-      user-select: none;       /* no text-selection */
-      pointer-events: none; /* no mouse events */
+      -webkit-user-drag: none;
+      /* Chrome/Safari */
+      user-drag: none;
+      /* future spec */
+      user-select: none;
+      /* no text-selection */
+      pointer-events: none;
+      /* no mouse events */
     }
- 
+
     #helperOverlay .helper-text {
       z-index: 11;
       position: absolute;
@@ -46,15 +55,20 @@
       font-size: 14px;
       color: #666;
       text-align: center;
-     margin-bottom: 16px;
+      margin-bottom: 16px;
     }
-      #subsets .helper-text {
-        font: weight 500px;;
-        font-size: 12px;    /* your new smaller size */
-        color: #A59878;        /* your new color */
-        text-align: center;
-        margin: 16px 16px 20px 16px;
-      }
+
+    #subsets .helper-text {
+      font: weight 500px;
+      ;
+      font-size: 12px;
+      /* your new smaller size */
+      color: #A59878;
+      /* your new color */
+      text-align: center;
+      margin: 16px 16px 20px 16px;
+    }
+
     /* UI container */
     #uiContainer {
       display: none;
@@ -63,63 +77,108 @@
     }
 
     /* swatches and subsets */
-    #swatches, #subsets {
-      display: flex; gap: 4px;
+    #swatches,
+    #subsets {
+      display: flex;
+      gap: 4px;
       overflow-x: auto;
-      height: 32px; align-items: center;
-      -ms-overflow-style: none; scrollbar-width: none;
+      height: 32px;
+      align-items: center;
+      -ms-overflow-style: none;
+      scrollbar-width: none;
     }
-    #swatches{
+
+    #swatches {
       margin: 8px 0 8px 10px;
     }
-    #subsets{
+
+    #subsets {
       margin: 8px 0 16px 10px;
     }
+
     #swatches::-webkit-scrollbar,
-    #subsets::-webkit-scrollbar { display: none; }
-    #swatches.dragging, #subsets.dragging {
+    #subsets::-webkit-scrollbar {
+      display: none;
+    }
+
+    #swatches.dragging,
+    #subsets.dragging {
       cursor: grabbing;
       user-select: none;
     }
 
 
     .swatch {
-      flex: 0 0 42px; width: 42px; height: 28px;
-      border: 2px solid rgba(0, 0, 0, 0.12); border-radius: 61px;
-      cursor: pointer; background-size: cover;
-      box-shadow: 0 0 0 1px rgba(255,255,255,0.3);
+      flex: 0 0 42px;
+      width: 42px;
+      height: 28px;
+      border: 2px solid rgba(0, 0, 0, 0.12);
+      border-radius: 61px;
+      cursor: pointer;
+      background-size: cover;
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.3);
     }
-    .swatch.selected { border: 2px solid #00000096; }
-    .swatch.sub { flex: 0 0 28px; width: 28px; height: 28px; opacity: 1; }
-    .swatch.sub.selected { opacity: 1; border-color: #00000096; }
+
+    .swatch.selected {
+      border: 2px solid #00000096;
+    }
+
+    .swatch.sub {
+      flex: 0 0 28px;
+      width: 28px;
+      height: 28px;
+      opacity: 1;
+    }
+
+    .swatch.sub.selected {
+      opacity: 1;
+      border-color: #00000096;
+    }
 
     .separator {
-    height: 1px;
-    background: #ddd;
-    margin: 0px;
-    padding: 0px 8px;    /* 4px vertical gap; matches your 12px side padding */
-  }
+      height: 1px;
+      background: #ddd;
+      margin: 0px;
+      padding: 0px 8px;
+      /* 4px vertical gap; matches your 12px side padding */
+    }
 
     /* controls */
-    #controls { padding: 0 12px; }
-    #controls.hidden { display: none; }
+    #controls {
+      padding: 0 12px;
+    }
+
+    #controls.hidden {
+      display: none;
+    }
 
     .slider-row {
-      display: flex; align-items: center;
+      display: flex;
+      align-items: center;
       margin-bottom: 10px;
     }
-    .slider-row label { width: 12px; }
+
+    .slider-row label {
+      width: 12px;
+    }
 
     input[type=range] {
       -webkit-appearance: none;
-      height: 26px; border-radius: 31px;
-      flex: 1; margin: 0 8px; background: transparent;
+      height: 26px;
+      border-radius: 31px;
+      flex: 1;
+      margin: 0 8px;
+      background: transparent;
       padding: 5px;
-      box-sizing:border-box;
+      box-sizing: border-box;
     }
+
     input[type=range]::-webkit-slider-runnable-track {
-      height: 26px; border-radius: 31px; border: none;
+      height: 26px;
+      border-radius: 31px;
+      border: none;
     }
+
     input[type=range]::-webkit-slider-thumb {
       -webkit-appearance: none;
       width: 16px;
@@ -128,12 +187,17 @@
       background: currentColor;
       box-shadow: 0 0 0 3px #ffffff;
       /* center the thumb vertically: (16px thumb vs. 26px track) */
-      margin-top: 5px;   /* -(trackHeight - thumbHeight)/2 = -(26-16)/2 */
+      margin-top: 5px;
+      /* -(trackHeight - thumbHeight)/2 = -(26-16)/2 */
       /* remove any margin-left */
-  }
-    input[type=range]::-moz-range-track {
-      height: 26px; border-radius: 31px; border: none;
     }
+
+    input[type=range]::-moz-range-track {
+      height: 26px;
+      border-radius: 31px;
+      border: none;
+    }
+
     input[type=range]::-moz-range-thumb {
       width: 16px;
       height: 16px;
@@ -145,57 +209,71 @@
     }
 
     /* always show number spinners */
-/* style the number inputs themselves */
-        input[type=number] {
-          -webkit-appearance: auto;
-          margin: 0;
-          width: 56px; height: 26px;
-          border: 0px solid #ccc;
-          background-color: #F2F2F2;       /* optional: gives it a border */
-          border-radius: 50px;          /* <— your new corner radius */
-          padding: 8px 8px;             /* optional: space for arrows */
-          box-sizing: border-box;
-        }
+    /* style the number inputs themselves */
+    input[type=number] {
+      -webkit-appearance: auto;
+      margin: 0;
+      width: 56px;
+      height: 26px;
+      border: 0px solid #ccc;
+      background-color: #F2F2F2;
+      /* optional: gives it a border */
+      border-radius: 50px;
+      /* <— your new corner radius */
+      padding: 8px 8px;
+      /* optional: space for arrows */
+      box-sizing: border-box;
+    }
 
-        /* make sure the spin-buttons are always shown */
-        input[type=number]::-webkit-inner-spin-button,
-        input[type=number]::-webkit-outer-spin-button {
-          opacity: 1;
-          display: inline-block;        /* force them to render even when not hovered */
-        }
+    /* make sure the spin-buttons are always shown */
+    input[type=number]::-webkit-inner-spin-button,
+    input[type=number]::-webkit-outer-spin-button {
+      opacity: 1;
+      display: inline-block;
+      /* force them to render even when not hovered */
+    }
 
-        /* Firefox */
-        input[type=number] {
-          -moz-appearance: textfield;   /* keep native arrows in Firefox */
-        }
-        input[type=number]::-moz-inner-spin-button,
-        input[type=number]::-moz-outer-spin-button {
-          opacity: 1;
-          display: inline-block;
-        }
+    /* Firefox */
+    input[type=number] {
+      -moz-appearance: textfield;
+      /* keep native arrows in Firefox */
+    }
 
-        #hexInput {
-          width: 80px;
-          height: 26px;
-          margin: 0 8px 0 0;
-          padding: 0 8px;
-          border: none;
-          background: #F2F2F2;
-          border-radius: 50px;
-          font-family: monospace;
-          text-align: center;
-          box-sizing: border-box;
-        }
+    input[type=number]::-moz-inner-spin-button,
+    input[type=number]::-moz-outer-spin-button {
+      opacity: 1;
+      display: inline-block;
+    }
+
+    #hexInput {
+      width: 80px;
+      height: 26px;
+      margin: 0 8px 0 0;
+      padding: 0 8px;
+      border: none;
+      background: #F2F2F2;
+      border-radius: 50px;
+      font-family: monospace;
+      text-align: center;
+      box-sizing: border-box;
+    }
+
     #reset-btn {
-      display: inline-block; margin: 3px 0 0 46px;
-      padding: 8px 16px; background: #FAF4E6;
-      border: none; border-radius: 100px; cursor: pointer;
+      display: inline-block;
+      margin: 3px 0 0 46px;
+      padding: 8px 16px;
+      background: #FAF4E6;
+      border: none;
+      border-radius: 100px;
+      cursor: pointer;
       font-size: 13px;
       color: #3F3727;
     }
+
     #refresh-btn {
       display: inline-block;
-      padding: 8px 16px; background: #FAF4E6;
+      padding: 8px 16px;
+      background: #FAF4E6;
       border: none;
       border-radius: 100px;
       cursor: pointer;
@@ -205,10 +283,12 @@
     }
   </style>
 </head>
+
 <body>
   <!-- full-screen helper overlay -->
   <div id="helperOverlay">
-    <img src="https://raw.githubusercontent.com/vibhoresinghal/HueRex/refs/heads/main/Assets/empty%20statev2.svg" alt="Helper Overlay Image" style="width: 82%; height: auto;"/>
+    <img src="https://raw.githubusercontent.com/vibhoresinghal/HueRex/refs/heads/main/Assets/empty%20statev2.svg"
+      alt="Helper Overlay Image" style="width: 82%; height: auto;" />
     <div class="helper-text">Select a layer to begin</div>
   </div>
 
@@ -221,17 +301,17 @@
       <div class="slider-row">
         <label>H</label>
         <input id="hRange" type="range" min="0" max="360">
-        <input id="hNum"   type="number" min="0" max="360">
+        <input id="hNum" type="number" min="0" max="360">
       </div>
       <div class="slider-row">
         <label>S</label>
         <input id="sRange" type="range" min="0" max="100">
-        <input id="sNum"   type="number" min="0" max="100">
+        <input id="sNum" type="number" min="0" max="100">
       </div>
       <div class="slider-row">
         <label>L</label>
         <input id="lRange" type="range" min="0" max="99">
-        <input id="lNum"   type="number" min="0" max="99">
+        <input id="lNum" type="number" min="0" max="99">
       </div>
       <button id="reset-btn">Reset</button>
       <button id="refresh-btn">Update Groups</button>
@@ -239,23 +319,23 @@
   </div>
 
   <script>
-    const overlay     = document.getElementById('helperOverlay');
+    const overlay = document.getElementById('helperOverlay');
     const uiContainer = document.getElementById('uiContainer');
-    const sw          = document.getElementById('swatches');
-    const sub         = document.getElementById('subsets');
-    const controls    = document.getElementById('controls');
+    const sw = document.getElementById('swatches');
+    const sub = document.getElementById('subsets');
+    const controls = document.getElementById('controls');
 
     const hR = document.getElementById('hRange'),
-          sR = document.getElementById('sRange'),
-          lR = document.getElementById('lRange');
+      sR = document.getElementById('sRange'),
+      lR = document.getElementById('lRange');
     const hN = document.getElementById('hNum'),
-          sN = document.getElementById('sNum'),
-          lN = document.getElementById('lNum');
+      sN = document.getElementById('sNum'),
+      lN = document.getElementById('lNum');
     const resetB = document.getElementById('reset-btn');
 
     let colors = [], subsets = [];
     let selectedCluster = 0, selectedSubset = -1, isExpanded = false;
-    
+
     // ---- ADD: Variable to store the initial slider value for relative changes ----
     let startSliderValue = null;
 
@@ -317,10 +397,10 @@
       hR.style.color = `hsl(${c.h.toFixed(0)},100%,50%)`;
 
       // saturation thumb: current saturation at hue=c.h, lightness=50%
-      sR.style.color = `hsl(${c.h.toFixed(0)},${(c.s*100).toFixed(0)}%,50%)`;
+      sR.style.color = `hsl(${c.h.toFixed(0)},${(c.s * 100).toFixed(0)}%,50%)`;
 
       // lightness thumb: current lightness at hue=c.h, full sat
-      lR.style.color = `hsl(${c.h.toFixed(0)},100%,${(c.l*100).toFixed(0)}%)`;
+      lR.style.color = `hsl(${c.h.toFixed(0)},100%,${(c.l * 100).toFixed(0)}%)`;
 
       // track backgrounds (unchanged)
       hR.style.background =
@@ -329,34 +409,34 @@
         `linear-gradient(to right, hsl(${c.h},0%,50%),hsl(${c.h},100%,50%))`;
       lR.style.background =
         `linear-gradient(to right, hsl(${c.h},100%,0%),hsl(${c.h},100%,50%),hsl(${c.h},100%,100%))`;
-}
+    }
 
 
 
     function showHelper(msg) {
       overlay.querySelector('.helper-text').textContent = msg;
-      overlay.style.display  = 'flex';
+      overlay.style.display = 'flex';
       uiContainer.style.display = 'none';
     }
 
     function hideHelper() {
-      overlay.style.display     = 'none';
+      overlay.style.display = 'none';
       uiContainer.style.display = 'block';
     }
 
     function selectCluster(i) {
       hideHelper();
       selectedCluster = i; selectedSubset = -1; isExpanded = false;
-      sw.querySelectorAll('.swatch').forEach((e,idx)=>
-        e.classList.toggle('selected', idx===i)
+      sw.querySelectorAll('.swatch').forEach((e, idx) =>
+        e.classList.toggle('selected', idx === i)
       );
       const c = colors[i];
       if (c.all) {
         const arr = subsets[i] || [];
         if (arr.length) {
-          let sum = {h:0,s:0,l:0};
-          arr.forEach(x=>{ sum.h+=x.h; sum.s+=x.s; sum.l+=x.l });
-          const avg = { h: sum.h/arr.length, s: sum.s/arr.length, l: sum.l/arr.length };
+          let sum = { h: 0, s: 0, l: 0 };
+          arr.forEach(x => { sum.h += x.h; sum.s += x.s; sum.l += x.l });
+          const avg = { h: sum.h / arr.length, s: sum.s / arr.length, l: sum.l / arr.length };
           hR.value = hN.value = Math.round(avg.h);
           sR.value = sN.value = Math.round(avg.s * 100);
           lR.value = lN.value = Math.round(avg.l * 100);
@@ -373,16 +453,16 @@
 
     function showSubset(i) {
       selectedSubset = -1; isExpanded = true; sub.innerHTML = '';
-      subsets[i].forEach((c,j) => {
+      subsets[i].forEach((c, j) => {
         const d = document.createElement('div');
         d.className = 'swatch sub';
         d.style.background =
-          `hsl(${c.h.toFixed(0)},${(c.s*100).toFixed(0)}%,${(c.l*100).toFixed(0)}%)`;
+          `hsl(${c.h.toFixed(0)},${(c.s * 100).toFixed(0)}%,${(c.l * 100).toFixed(0)}%)`;
         d.onclick = () => {
-          
+
           selectedSubset = j;
-          sub.querySelectorAll('.swatch').forEach((e,idx)=>
-            e.classList.toggle('selected', idx===j)
+          sub.querySelectorAll('.swatch').forEach((e, idx) =>
+            e.classList.toggle('selected', idx === j)
           );
           hR.value = hN.value = Math.round(c.h);
           sR.value = sN.value = Math.round(c.s * 100);
@@ -391,17 +471,21 @@
         };
         sub.appendChild(d);
         d.onmouseenter = () => {
-        parent.postMessage({ pluginMessage: {
-        type: 'hover-subset',
-        groupIndex: selectedCluster,
-        subsetIndex: j
-        }}, '*');
-};
-d.onmouseleave = () => {
-  parent.postMessage({ pluginMessage: {
-    type: 'unhover-subset'
-  }}, '*');
-};
+          parent.postMessage({
+            pluginMessage: {
+              type: 'hover-subset',
+              groupIndex: selectedCluster,
+              subsetIndex: j
+            }
+          }, '*');
+        };
+        d.onmouseleave = () => {
+          parent.postMessage({
+            pluginMessage: {
+              type: 'unhover-subset'
+            }
+          }, '*');
+        };
       });
     }
 
@@ -419,145 +503,157 @@ d.onmouseleave = () => {
       }
       parent.postMessage({ pluginMessage }, '*');
 
-      const H = +hR.value, S = +sR.value/100, L = +lR.value/100;
-      setSliderBackgrounds({h:H, s:S, l:L});
+      const H = +hR.value, S = +sR.value / 100, L = +lR.value / 100;
+      setSliderBackgrounds({ h: H, s: S, l: L });
       if (selectedSubset >= 0) {
         sub.children[selectedSubset].style.background =
-          `hsl(${H},${(S*100).toFixed(0)}%,${(L*100).toFixed(0)}%)`;
+          `hsl(${H},${(S * 100).toFixed(0)}%,${(L * 100).toFixed(0)}%)`;
       } else if (!colors[selectedCluster].all) {
         sw.children[selectedCluster].style.background =
-          `hsl(${H},${(S*100).toFixed(0)}%,${(L*100).toFixed(0)}%)`;
+          `hsl(${H},${(S * 100).toFixed(0)}%,${(L * 100).toFixed(0)}%)`;
       }
     }
 
     // wire up sliders & inputs
-    // ---- CHANGE: Add mousedown/mouseup and modify oninput for S and L sliders ----
-    hR.oninput = () => { hN.value = hR.value; post(selectedSubset >= 0 ? 'change-hsl-subset' : 'change-hsl-group', 'h', +hR.value); };
+    // Hue doesn't need relative changes, so it's simpler
+    hR.oninput = () => { hN.value = hR.value; post(selectedSubset >= 0 ? 'change-hsl-subset' : 'change-hsl-group-fast', 'h', +hR.value); };
+    hR.onmouseup = () => { if (selectedSubset < 0) post('change-hsl-group', 'h', +hR.value); };
     hN.onchange = () => { hR.value = hN.value; post(selectedSubset >= 0 ? 'change-hsl-subset' : 'change-hsl-group', 'h', +hN.value); };
 
     sR.onmousedown = () => {
       startSliderValue = +sR.value;
-      parent.postMessage({ pluginMessage: { type: 'start-hsl-change', groupIndex: selectedCluster }}, '*');
+      parent.postMessage({ pluginMessage: { type: 'start-hsl-change', groupIndex: selectedCluster } }, '*');
     };
-    sR.oninput = () => { sN.value = sR.value; post(selectedSubset >= 0 ? 'change-hsl-subset' : 'change-hsl-group', 's', +sR.value, startSliderValue); };
-    sR.onmouseup = () => { startSliderValue = null; parent.postMessage({ pluginMessage: { type: 'stop-hsl-change', groupIndex: selectedCluster }}, '*'); };
+    sR.oninput = () => { sN.value = sR.value; post(selectedSubset >= 0 ? 'change-hsl-subset' : 'change-hsl-group-fast', 's', +sR.value, startSliderValue); };
+    sR.onmouseup = () => {
+      if (selectedSubset < 0) post('change-hsl-group', 's', +sR.value, startSliderValue);
+      startSliderValue = null;
+      parent.postMessage({ pluginMessage: { type: 'stop-hsl-change', groupIndex: selectedCluster } }, '*');
+    };
     sN.onchange = () => { sR.value = sN.value; post(selectedSubset >= 0 ? 'change-hsl-subset' : 'change-hsl-group', 's', +sN.value); };
 
     lR.onmousedown = () => {
       startSliderValue = +lR.value;
-      parent.postMessage({ pluginMessage: { type: 'start-hsl-change', groupIndex: selectedCluster }}, '*');
+      parent.postMessage({ pluginMessage: { type: 'start-hsl-change', groupIndex: selectedCluster } }, '*');
     };
-    lR.oninput = () => { lN.value = lR.value; post(selectedSubset >= 0 ? 'change-hsl-subset' : 'change-hsl-group', 'l', +lR.value, startSliderValue); };
-    lR.onmouseup = () => { startSliderValue = null; parent.postMessage({ pluginMessage: { type: 'stop-hsl-change', groupIndex: selectedCluster }}, '*'); };
+    lR.oninput = () => { lN.value = lR.value; post(selectedSubset >= 0 ? 'change-hsl-subset' : 'change-hsl-group-fast', 'l', +lR.value, startSliderValue); };
+    lR.onmouseup = () => {
+      if (selectedSubset < 0) post('change-hsl-group', 'l', +lR.value, startSliderValue);
+      startSliderValue = null;
+      parent.postMessage({ pluginMessage: { type: 'stop-hsl-change', groupIndex: selectedCluster } }, '*');
+    };
     lN.onchange = () => { lR.value = lN.value; post(selectedSubset >= 0 ? 'change-hsl-subset' : 'change-hsl-group', 'l', +lN.value); };
 
     resetB.onclick = () => {
-      const msg = selectedSubset>=0 ? 'reset-subset' : 'reset-group';
-      parent.postMessage({ pluginMessage:{
-        type: msg,
-        groupIndex: selectedCluster,
-        subsetIndex: selectedSubset
-      }}, '*');
+      const msg = selectedSubset >= 0 ? 'reset-subset' : 'reset-group';
+      parent.postMessage({
+        pluginMessage: {
+          type: msg,
+          groupIndex: selectedCluster,
+          subsetIndex: selectedSubset
+        }
+      }, '*');
     };
 
     window.onmessage = e => {
-  const msg = e.data.pluginMessage;
+      const msg = e.data.pluginMessage;
 
-  if (msg.type === 'selection-colors') {
-    if (!msg.colors.length) {
-      showHelper('Select a layer to begin');
-      return;
-    }
-    colors  = msg.colors;
-    subsets = msg.subsets;
-    // clear existing swatches
-    sw.innerHTML = '';
-    sub.innerHTML = '';
-    // show the UI
-    hideHelper();
+      if (msg.type === 'selection-colors') {
+        if (!msg.colors.length) {
+          showHelper('Select a layer to begin');
+          return;
+        }
+        colors = msg.colors;
+        subsets = msg.subsets;
+        // clear existing swatches
+        sw.innerHTML = '';
+        sub.innerHTML = '';
+        // show the UI
+        hideHelper();
 
-    // build new cluster swatches
-    colors.forEach((c, i) => {
-      const d = document.createElement('div');
-      d.className = 'swatch';
-      if (c.all) {
-  // make a white "All" button
-      d.textContent = 'All';
-      d.style.background    = '#fff';
-      d.style.color         = '#000';
-      d.style.display       = 'flex';
-      d.style.alignItems    = 'center';
-      d.style.justifyContent= 'center';
-      d.style.fontSize      = '12px';
-    } else {
-  // original color swatch
-  d.style.background = 
-    `hsl(${c.h.toFixed(0)},${(c.s*100).toFixed(0)}%,${(c.l*100).toFixed(0)}%)`;
-}
+        // build new cluster swatches
+        colors.forEach((c, i) => {
+          const d = document.createElement('div');
+          d.className = 'swatch';
+          if (c.all) {
+            // make a white "All" button
+            d.textContent = 'All';
+            d.style.background = '#fff';
+            d.style.color = '#000';
+            d.style.display = 'flex';
+            d.style.alignItems = 'center';
+            d.style.justifyContent = 'center';
+            d.style.fontSize = '12px';
+          } else {
+            // original color swatch
+            d.style.background =
+              `hsl(${c.h.toFixed(0)},${(c.s * 100).toFixed(0)}%,${(c.l * 100).toFixed(0)}%)`;
+          }
 
-      d.onclick    = () => selectCluster(i);
-      d.ondblclick = () => { selectCluster(i); showSubset(i); };
-      sw.appendChild(d);
-    });
+          d.onclick = () => selectCluster(i);
+          d.ondblclick = () => { selectCluster(i); showSubset(i); };
+          sw.appendChild(d);
+        });
 
-    // Select the previously selected group, or default to the first one.
-    selectCluster(msg.selectedGroupIndex !== undefined ? msg.selectedGroupIndex : 0);
+        // Select the previously selected group, or default to the first one.
+        selectCluster(msg.selectedGroupIndex !== undefined ? msg.selectedGroupIndex : 0);
 
-  } else if (msg.type === 'update-subsets') {
-  subsets = msg.subsets;
+      } else if (msg.type === 'update-subsets') {
+        subsets = msg.subsets;
 
-  // 1) repaint the group swatches from the new subset HSLs:
-  subsets.forEach((subs, gi) => {
-    // skip the special “All” gradient button
-    if (colors[gi].all) return;
+        // 1) repaint the group swatches from the new subset HSLs:
+        subsets.forEach((subs, gi) => {
+          // skip the special “All” gradient button
+          if (colors[gi].all) return;
 
-    // compute the average HSL of this cluster’s subsets
-    let sum = { h:0, s:0, l:0 };
-    subs.forEach(c => { sum.h += c.h; sum.s += c.s; sum.l += c.l; });
-    const avg = {
-      h: sum.h / subs.length,
-      s: sum.s / subs.length,
-      l: sum.l / subs.length
+          // compute the average HSL of this cluster’s subsets
+          let sum = { h: 0, s: 0, l: 0 };
+          subs.forEach(c => { sum.h += c.h; sum.s += c.s; sum.l += c.l; });
+          const avg = {
+            h: sum.h / subs.length,
+            s: sum.s / subs.length,
+            l: sum.l / subs.length
+          };
+
+          // store back
+          colors[gi] = avg;
+
+          // repaint that swatch element
+          const swEl = sw.children[gi];
+          if (swEl) {
+            swEl.style.background =
+              `hsl(${avg.h.toFixed(0)},${(avg.s * 100).toFixed(0)}%,${(avg.l * 100).toFixed(0)}%)`;
+          }
+        });
+
+        // 2) update the subset row as before:
+        if (isExpanded && selectedCluster >= 0) {
+          if (selectedSubset >= 0) {
+            // update just the one sub‐swatch
+            const c = subsets[selectedCluster][selectedSubset];
+            const swEl2 = sub.children[selectedSubset];
+            if (swEl2) {
+              swEl2.style.background =
+                `hsl(${c.h.toFixed(0)},${(c.s * 100).toFixed(0)}%,${(c.l * 100).toFixed(0)}%)`;
+            }
+          } else {
+            // or redraw them all
+            showSubset(selectedCluster);
+          }
+        }
+      }
+
+    };
+    const refreshB = document.getElementById('refresh-btn');
+    refreshB.onclick = () => {
+      parent.postMessage({ pluginMessage: { type: 'refresh-groups' } }, '*');
     };
 
-    // store back
-    colors[gi] = avg;
-
-    // repaint that swatch element
-    const swEl = sw.children[gi];
-    if (swEl) {
-      swEl.style.background =
-        `hsl(${avg.h.toFixed(0)},${(avg.s*100).toFixed(0)}%,${(avg.l*100).toFixed(0)}%)`;
-    }
-  });
-
-  // 2) update the subset row as before:
-  if (isExpanded && selectedCluster >= 0) {
-    if (selectedSubset >= 0) {
-      // update just the one sub‐swatch
-      const c      = subsets[selectedCluster][selectedSubset];
-      const swEl2  = sub.children[selectedSubset];
-      if (swEl2) {
-        swEl2.style.background =
-          `hsl(${c.h.toFixed(0)},${(c.s*100).toFixed(0)}%,${(c.l*100).toFixed(0)}%)`;
-      }
-    } else {
-      // or redraw them all
-      showSubset(selectedCluster);
-    }
-  }
-}
-
-};
-const refreshB = document.getElementById('refresh-btn');
-refreshB.onclick = () => {
-  parent.postMessage({ pluginMessage: { type: 'refresh-groups' } }, '*');
-};
-
-// ---- ADD: Apply draggable functionality to swatch containers ----
-makeDraggable(sw);
-makeDraggable(sub);
+    // ---- ADD: Apply draggable functionality to swatch containers ----
+    makeDraggable(sw);
+    makeDraggable(sub);
 
   </script>
 </body>
+
 </html>
