@@ -514,9 +514,21 @@
       }
     }
 
-    // wire up sliders & inputs
-    // Hue doesn't need relative changes, so it's simpler
-    hR.oninput = () => { hN.value = hR.value; post(selectedSubset >= 0 ? 'change-hsl-subset' : 'change-hsl-group-fast', 'h', +hR.value); };
+    let _rafPending = { h: false, s: false, l: false };
+    function throttledPost(comp, slider, numInput) {
+      numInput.value = slider.value;
+      if (_rafPending[comp]) return;
+      _rafPending[comp] = true;
+      requestAnimationFrame(() => {
+        _rafPending[comp] = false;
+        post(
+          selectedSubset >= 0 ? 'change-hsl-subset' : 'change-hsl-group-fast',
+          comp, +slider.value, startSliderValue
+        );
+      });
+    }
+
+    hR.oninput = () => throttledPost('h', hR, hN);
     hR.onmouseup = () => { if (selectedSubset < 0) post('change-hsl-group', 'h', +hR.value); };
     hN.onchange = () => { hR.value = hN.value; post(selectedSubset >= 0 ? 'change-hsl-subset' : 'change-hsl-group', 'h', +hN.value); };
 
@@ -524,7 +536,7 @@
       startSliderValue = +sR.value;
       parent.postMessage({ pluginMessage: { type: 'start-hsl-change', groupIndex: selectedCluster } }, '*');
     };
-    sR.oninput = () => { sN.value = sR.value; post(selectedSubset >= 0 ? 'change-hsl-subset' : 'change-hsl-group-fast', 's', +sR.value, startSliderValue); };
+    sR.oninput = () => throttledPost('s', sR, sN);
     sR.onmouseup = () => {
       if (selectedSubset < 0) post('change-hsl-group', 's', +sR.value, startSliderValue);
       startSliderValue = null;
@@ -536,7 +548,7 @@
       startSliderValue = +lR.value;
       parent.postMessage({ pluginMessage: { type: 'start-hsl-change', groupIndex: selectedCluster } }, '*');
     };
-    lR.oninput = () => { lN.value = lR.value; post(selectedSubset >= 0 ? 'change-hsl-subset' : 'change-hsl-group-fast', 'l', +lR.value, startSliderValue); };
+    lR.oninput = () => throttledPost('l', lR, lN);
     lR.onmouseup = () => {
       if (selectedSubset < 0) post('change-hsl-group', 'l', +lR.value, startSliderValue);
       startSliderValue = null;

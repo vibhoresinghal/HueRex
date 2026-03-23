@@ -34,7 +34,6 @@ function hslToRgb(h, s, l) {
   };
 }
 
-// Deep‐clone helper
 function clonePaints(arr) {
   return Array.isArray(arr) ? JSON.parse(JSON.stringify(arr)) : [];
 }
@@ -52,13 +51,18 @@ async function ensureNodeFontsLoaded(node) {
   }
 }
 
-var originalPaints = {}, groupMap = [];
+var originalPaints = {}, groupMap = [], currentColors = {}, currentPaintsData = {};
 
-// Record paints & effects (skip hidden)
+function getRefKey(ref) {
+  if (ref.type === 'mixedTextFills')
+    return `${ref.nodeId}-${ref.type}-${ref.segmentIndex}-${ref.index}-${ref.stopIndex}`;
+  if (ref.type === 'vectorRegions')
+    return `${ref.nodeId}-${ref.type}-${ref.regionIndex}-${ref.index}-${ref.stopIndex}`;
+  return `${ref.nodeId}-${ref.type}-${ref.index}-${ref.stopIndex}`;
+}
+
 function recordOriginals(node) {
-  // skip hidden nodes
   if (node.visible === false) return;
-  // skip the mask layer itself, but not its children
   if (node.isMask) return;
 
   const isMixedFills = node.type === 'TEXT' && node.fills === figma.mixed;
@@ -92,13 +96,13 @@ function recordOriginals(node) {
     if (node.effects && node.effects.length) {
       entry.effects = clonePaints(node.effects);
     }
-    // Store vector region fills
     if (hasVectorRegions) {
       entry.vectorRegions = vectorRegions.map(r => ({
         fills: clonePaints(r.fills),
         windingRule: r.windingRule,
         loops: r.loops
       }));
+      entry.vectorNetwork = JSON.parse(JSON.stringify(node.vectorNetwork));
     }
     originalPaints[node.id] = entry;
   }
@@ -195,33 +199,57 @@ function buildGroups() {
   return unique;
 }
 
-// ---- CHANGE: make this function async and use getNodeByIdAsync ----
-async function getCurrentSubsets() {
-  return Promise.all(groupMap.map(async refs => {
+function extractColorFromOrigPaint(orig, ref) {
+  let paint;
+  if (ref.type === 'mixedTextFills') {
+    if (orig.segments && orig.segments[ref.segmentIndex])
+      paint = orig.segments[ref.segmentIndex].fills[ref.index];
+  } else if (ref.type === 'vectorRegions') {
+    if (orig.vectorRegions && orig.vectorRegions[ref.regionIndex])
+      paint = orig.vectorRegions[ref.regionIndex].fills[ref.index];
+  } else if (ref.type === 'effects') {
+    paint = orig.effects && orig.effects[ref.index];
+  } else {
+    paint = orig[ref.type] && orig[ref.type][ref.index];
+  }
+  if (!paint) return null;
+  let c;
+  if (ref.type === 'effects') {
+    c = paint.color;
+  } else if (paint.type === 'SOLID') {
+    c = paint.color;
+  } else if (paint.gradientStops && paint.gradientStops[ref.stopIndex]) {
+    c = paint.gradientStops[ref.stopIndex].color;
+  }
+  return c ? { r: c.r, g: c.g, b: c.b } : null;
+}
+
+function initCurrentColors() {
+  currentColors = {};
+  for (const refs of groupMap) {
+    for (const ref of refs) {
+      const key = getRefKey(ref);
+      if (currentColors[key]) continue;
+      const orig = originalPaints[ref.nodeId];
+      if (!orig) continue;
+      const c = extractColorFromOrigPaint(orig, ref);
+      if (c) currentColors[key] = c;
+    }
+  }
+}
+
+function initCurrentPaintsData() {
+  currentPaintsData = {};
+  for (const nodeId in originalPaints) {
+    currentPaintsData[nodeId] = JSON.parse(JSON.stringify(originalPaints[nodeId]));
+  }
+}
+
+function computeCurrentSubsets() {
+  return groupMap.map(refs => {
     var arr = [];
     for (const ref of refs) {
-      var node = await figma.getNodeByIdAsync(ref.nodeId);
-      if (!node) continue;
-      let c;
-      let paint;
-      if (ref.type === 'mixedTextFills') {
-        const segs = node.getStyledTextSegments(['fills']);
-        if (segs[ref.segmentIndex]) paint = segs[ref.segmentIndex].fills[ref.index];
-      } else if (ref.type === 'vectorRegions') {
-        // Handle vector network regions (paint bucket fills)
-        if (node.vectorNetwork && node.vectorNetwork.regions && node.vectorNetwork.regions[ref.regionIndex]) {
-          paint = node.vectorNetwork.regions[ref.regionIndex].fills[ref.index];
-        }
-      } else {
-        paint = node[ref.type] && node[ref.type][ref.index];
-      }
-      if (!paint) continue;
-
-      if (ref.type === 'effects') {
-        c = paint.color;
-      } else {
-        c = paint.type === 'SOLID' ? paint.color : (paint.gradientStops && paint.gradientStops[ref.stopIndex] ? paint.gradientStops[ref.stopIndex].color : null);
-      }
+      const c = currentColors[getRefKey(ref)];
       if (!c) continue;
       const hsl = rgbToHsl(c.r, c.g, c.b);
       arr.push({ h: hsl.h * 360, s: hsl.s, l: hsl.l });
@@ -233,7 +261,7 @@ async function getCurrentSubsets() {
       seen[key] = true;
       return true;
     });
-  }));
+  });
 }
 
 // At top of code.js, add:
@@ -263,17 +291,18 @@ function highlightNodes(nodes) {
   }
 }
 
-// ---- CHANGE: make handleSelectionChange async and await getCurrentSubsets ----
 async function handleSelectionChange(selectedGroupIndex) {
   var sel = figma.currentPage.selection;
-  originalPaints = {}; groupMap = [];
+  originalPaints = {}; groupMap = []; currentColors = {}; currentPaintsData = {};
   if (!sel.length) {
     figma.ui.postMessage({ type: 'selection-colors', colors: [], subsets: [] });
     return;
   }
   sel.forEach(recordOriginals);
   var colors = buildGroups();
-  var subsets = await getCurrentSubsets();
+  initCurrentColors();
+  initCurrentPaintsData();
+  var subsets = computeCurrentSubsets();
   var zipped = colors.map((c, i) => ({ color: c, subset: subsets[i], refs: groupMap[i] }));
   zipped.sort((a, b) => b.color.l - a.color.l);
   colors = zipped.map(z => z.color);
@@ -288,164 +317,123 @@ figma.on('selectionchange', handleSelectionChange);
 // Initial call (no await needed)
 handleSelectionChange();
 
-// ---- CHANGE: make applyRef async and use getNodeByIdAsync AND async style setters ----
 async function applyRef(ref, comp, v, delta, initialValues) {
-  const node = await figma.getNodeByIdAsync(ref.nodeId);
-  if (!node) return;
+  const paintData = currentPaintsData[ref.nodeId];
+  if (!paintData) return;
 
-  // pull existing color
   let hsl, rgb;
-  const key = ref.type === 'mixedTextFills'
-    ? `${ref.nodeId}-${ref.type}-${ref.segmentIndex}-${ref.index}-${ref.stopIndex}`
-    : (ref.type === 'vectorRegions'
-      ? `${ref.nodeId}-${ref.type}-${ref.regionIndex}-${ref.index}-${ref.stopIndex}`
-      : `${ref.nodeId}-${ref.type}-${ref.index}-${ref.stopIndex}`);
-  const initialHSL = initialValues ? initialValues[key] : null;
+  const refKey = getRefKey(ref);
+  const initialHSL = initialValues ? initialValues[refKey] : null;
 
-  if (ref.type === 'effects') {
-    const effs = clonePaints(node.effects), e = effs[ref.index];
+  function computeHSL(color) {
     if (initialHSL && (comp === 's' || comp === 'l')) {
       hsl = { h: initialHSL.h, s: initialHSL.s, l: initialHSL.l };
-      hsl[comp] = Math.max(0, Math.min(1, initialHSL[comp] + delta));
+      hsl[comp] = Math.max(0, Math.min(1, initialHSL[comp] + (delta || 0)));
     } else {
-      hsl = rgbToHsl(e.color.r, e.color.g, e.color.b);
+      hsl = rgbToHsl(color.r, color.g, color.b);
       hsl[comp] = v;
     }
-    // If hue on desaturated, give some saturation
     if (comp === 'h' && hsl.s === 0) {
       hsl.s = 0.5;
       figma.ui.postMessage({ type: 'force-saturation', value: Math.round(50) });
     }
     rgb = hslToRgb(hsl.h, hsl.s, hsl.l);
+  }
+
+  if (ref.type === 'effects') {
+    const effs = JSON.parse(JSON.stringify(paintData.effects));
+    const e = effs[ref.index];
+    computeHSL(e.color);
     e.color = { r: rgb.r, g: rgb.g, b: rgb.b, a: e.color.a };
-    node.effects = effs;
+    paintData.effects = effs;
+    const node = await figma.getNodeByIdAsync(ref.nodeId);
+    if (node) node.effects = effs;
 
   } else if (ref.type === 'vectorRegions') {
-    // Handle vector network regions (paint bucket fills)
-    if (!node.vectorNetwork || !node.vectorNetwork.regions) return;
-    const vn = JSON.parse(JSON.stringify(node.vectorNetwork));
+    if (!paintData.vectorNetwork) return;
+    const vn = JSON.parse(JSON.stringify(paintData.vectorNetwork));
     const region = vn.regions[ref.regionIndex];
     if (!region || !region.fills || !region.fills[ref.index]) return;
-
     const p = region.fills[ref.index];
-
     if (p.type === 'SOLID') {
-      if (initialHSL && (comp === 's' || comp === 'l')) {
-        hsl = { h: initialHSL.h, s: initialHSL.s, l: initialHSL.l };
-        hsl[comp] = Math.max(0, Math.min(1, initialHSL[comp] + delta));
-      } else {
-        hsl = rgbToHsl(p.color.r, p.color.g, p.color.b);
-        hsl[comp] = v;
-      }
-      if (comp === 'h' && hsl.s === 0) {
-        hsl.s = 0.5;
-        figma.ui.postMessage({ type: 'force-saturation', value: Math.round(50) });
-      }
-      rgb = hslToRgb(hsl.h, hsl.s, hsl.l);
+      computeHSL(p.color);
       p.color = { r: rgb.r, g: rgb.g, b: rgb.b };
     } else {
-      // Gradient stop
       const stop = p.gradientStops[ref.stopIndex];
-      if (initialHSL && (comp === 's' || comp === 'l')) {
-        hsl = { h: initialHSL.h, s: initialHSL.s, l: initialHSL.l };
-        hsl[comp] = Math.max(0, Math.min(1, initialHSL[comp] + delta));
-      } else {
-        hsl = rgbToHsl(stop.color.r, stop.color.g, stop.color.b);
-        hsl[comp] = v;
-      }
-      if (comp === 'h' && hsl.s === 0) {
-        hsl.s = 0.5;
-        figma.ui.postMessage({ type: 'force-saturation', value: Math.round(50) });
-      }
-      rgb = hslToRgb(hsl.h, hsl.s, hsl.l);
+      computeHSL(stop.color);
       stop.color = { r: rgb.r, g: rgb.g, b: rgb.b, a: stop.color.a };
     }
-
-    await node.setVectorNetworkAsync(vn);
+    paintData.vectorNetwork = vn;
+    const node = await figma.getNodeByIdAsync(ref.nodeId);
+    if (node) await node.setVectorNetworkAsync(vn);
 
   } else {
     let paints;
     if (ref.type === 'mixedTextFills') {
-      await ensureNodeFontsLoaded(node);
-      const origSeg = originalPaints[node.id].segments[ref.segmentIndex];
-      paints = clonePaints(node.getRangeFills(origSeg.start, origSeg.end));
+      paints = JSON.parse(JSON.stringify(paintData.segments[ref.segmentIndex].fills));
     } else {
-      paints = clonePaints(node[ref.type]);
+      paints = JSON.parse(JSON.stringify(paintData[ref.type]));
     }
     const p = paints[ref.index];
-
     if (p.type === 'SOLID') {
-      if (initialHSL && (comp === 's' || comp === 'l')) {
-        hsl = { h: initialHSL.h, s: initialHSL.s, l: initialHSL.l };
-        hsl[comp] = Math.max(0, Math.min(1, initialHSL[comp] + delta));
-      } else {
-        hsl = rgbToHsl(p.color.r, p.color.g, p.color.b);
-        hsl[comp] = v;
-      }
-      if (comp === 'h' && hsl.s === 0) {
-        hsl.s = 0.5;
-        figma.ui.postMessage({ type: 'force-saturation', value: Math.round(50) });
-      }
-      rgb = hslToRgb(hsl.h, hsl.s, hsl.l);
+      computeHSL(p.color);
       p.color = { r: rgb.r, g: rgb.g, b: rgb.b };
     } else {
-      // When a gradient stop is part of a group, apply the change only to that stop.
       const stop = p.gradientStops[ref.stopIndex];
-      if (initialHSL && (comp === 's' || comp === 'l')) {
-        hsl = { h: initialHSL.h, s: initialHSL.s, l: initialHSL.l };
-        hsl[comp] = Math.max(0, Math.min(1, initialHSL[comp] + delta));
-      } else {
-        hsl = rgbToHsl(stop.color.r, stop.color.g, stop.color.b);
-        hsl[comp] = v;
-      }
-      if (comp === 'h' && hsl.s === 0) {
-        hsl.s = 0.5;
-        figma.ui.postMessage({ type: 'force-saturation', value: Math.round(50) });
-      }
-
-      rgb = hslToRgb(hsl.h, hsl.s, hsl.l);
+      computeHSL(stop.color);
       stop.color = { r: rgb.r, g: rgb.g, b: rgb.b, a: stop.color.a };
     }
 
+    const node = await figma.getNodeByIdAsync(ref.nodeId);
+    if (!node) return;
+
     if (ref.type === 'mixedTextFills') {
-      const origSeg = originalPaints[node.id].segments[ref.segmentIndex];
-      node.setRangeFills(origSeg.start, origSeg.end, paints);
+      paintData.segments[ref.segmentIndex].fills = paints;
+      await ensureNodeFontsLoaded(node);
+      const seg = paintData.segments[ref.segmentIndex];
+      node.setRangeFills(seg.start, seg.end, paints);
     } else if (ref.type === 'fills') {
-      // Async setter for dynamic-page access
+      paintData.fills = paints;
       await node.setFillStyleIdAsync('');
       node.fills = paints;
     } else {
+      paintData.strokes = paints;
       await node.setStrokeStyleIdAsync('');
       node.strokes = paints;
     }
   }
 }
 
-// ---- CHANGE: make resetRef async and use getNodeByIdAsync AND async style setters ----
 async function resetRef(ref) {
+  const paintData = currentPaintsData[ref.nodeId];
+  const orig = originalPaints[ref.nodeId];
+  if (!paintData || !orig) return;
+
   var node = await figma.getNodeByIdAsync(ref.nodeId);
   if (!node) return;
+
   if (ref.type === 'effects') {
-    node.effects = clonePaints(originalPaints[node.id].effects);
+    const origEffects = JSON.parse(JSON.stringify(orig.effects));
+    node.effects = origEffects;
   } else if (ref.type === 'mixedTextFills') {
     await ensureNodeFontsLoaded(node);
-    const origSeg = originalPaints[node.id].segments[ref.segmentIndex];
-    const paints = clonePaints(node.getRangeFills(origSeg.start, origSeg.end));
-    paints[ref.index] = clonePaints(origSeg.fills)[ref.index];
-    node.setRangeFills(origSeg.start, origSeg.end, paints);
+    const currentFills = JSON.parse(JSON.stringify(paintData.segments[ref.segmentIndex].fills));
+    const origFills = JSON.parse(JSON.stringify(orig.segments[ref.segmentIndex].fills));
+    currentFills[ref.index] = origFills[ref.index];
+    const seg = orig.segments[ref.segmentIndex];
+    node.setRangeFills(seg.start, seg.end, currentFills);
   } else if (ref.type === 'vectorRegions') {
-    // Reset vector network region fills
-    if (!node.vectorNetwork || !node.vectorNetwork.regions) return;
-    const vn = JSON.parse(JSON.stringify(node.vectorNetwork));
-    const origRegion = originalPaints[node.id].vectorRegions[ref.regionIndex];
+    if (!paintData.vectorNetwork) return;
+    const vn = JSON.parse(JSON.stringify(paintData.vectorNetwork));
+    const origRegion = orig.vectorRegions[ref.regionIndex];
     if (vn.regions[ref.regionIndex] && origRegion) {
-      vn.regions[ref.regionIndex].fills[ref.index] = clonePaints(origRegion.fills)[ref.index];
+      vn.regions[ref.regionIndex].fills[ref.index] = JSON.parse(JSON.stringify(origRegion.fills[ref.index]));
       await node.setVectorNetworkAsync(vn);
     }
   } else {
-    var paints = clonePaints(node[ref.type]),
-      orig = originalPaints[node.id][ref.type];
-    paints[ref.index] = clonePaints(orig)[ref.index];
+    const paints = JSON.parse(JSON.stringify(paintData[ref.type]));
+    const origPaints = JSON.parse(JSON.stringify(orig[ref.type]));
+    paints[ref.index] = origPaints[ref.index];
     if (ref.type === 'fills') {
       await node.setFillStyleIdAsync('');
       node.fills = paints;
@@ -462,35 +450,12 @@ let originalSliderValues = {};
 // ---- CHANGE: make onmessage handler async ----
 figma.ui.onmessage = async (msg) => {
   if (msg.type === 'start-hsl-change') {
-    // Store the initial HSL values for all colors in the group
     const refs = groupMap[msg.groupIndex] || [];
     originalSliderValues[msg.groupIndex] = {};
     for (const ref of refs) {
-      const node = await figma.getNodeByIdAsync(ref.nodeId);
-      if (!node) continue;
-      let c;
-      if (ref.type === 'effects') {
-        c = node.effects[ref.index].color;
-      } else if (ref.type === 'mixedTextFills') {
-        const segs = node.getStyledTextSegments(['fills']);
-        const p = segs[ref.segmentIndex].fills[ref.index];
-        c = p.type === 'SOLID' ? p.color : p.gradientStops[ref.stopIndex].color;
-      } else if (ref.type === 'vectorRegions') {
-        // Handle vector network regions (paint bucket fills)
-        if (node.vectorNetwork && node.vectorNetwork.regions && node.vectorNetwork.regions[ref.regionIndex]) {
-          const p = node.vectorNetwork.regions[ref.regionIndex].fills[ref.index];
-          c = p.type === 'SOLID' ? p.color : p.gradientStops[ref.stopIndex].color;
-        }
-      } else {
-        const p = node[ref.type][ref.index];
-        c = p.type === 'SOLID' ? p.color : p.gradientStops[ref.stopIndex].color;
-      }
+      const key = getRefKey(ref);
+      const c = currentColors[key];
       if (!c) continue;
-      const key = ref.type === 'mixedTextFills'
-        ? `${ref.nodeId}-${ref.type}-${ref.segmentIndex}-${ref.index}-${ref.stopIndex}`
-        : (ref.type === 'vectorRegions'
-          ? `${ref.nodeId}-${ref.type}-${ref.regionIndex}-${ref.index}-${ref.stopIndex}`
-          : `${ref.nodeId}-${ref.type}-${ref.index}-${ref.stopIndex}`);
       originalSliderValues[msg.groupIndex][key] = rgbToHsl(c.r, c.g, c.b);
     }
 
@@ -507,130 +472,126 @@ figma.ui.onmessage = async (msg) => {
       return acc;
     }, {});
 
-    const promises = Object.keys(refsByNode).map(async (nodeId) => {
-      const node = await figma.getNodeByIdAsync(nodeId);
-      if (!node) return;
+    const writeOps = [];
 
+    for (const nodeId of Object.keys(refsByNode)) {
+      const paintData = currentPaintsData[nodeId];
+      if (!paintData) continue;
       const nodeRefs = refsByNode[nodeId];
 
       const hasMixed = nodeRefs.some(r => r.type === 'mixedTextFills');
-      if (hasMixed) {
-        await ensureNodeFontsLoaded(node);
-      }
-
-      const clonedFills = (!hasMixed && node.fills !== figma.mixed && node.fills) ? clonePaints(node.fills) : [];
-      const clonedStrokes = (node.strokes !== undefined && node.strokes !== figma.mixed) ? clonePaints(node.strokes) : [];
-      const clonedEffects = (node.effects && node.effects.length) ? clonePaints(node.effects) : [];
-
-      // Clone vector network for region fills
       const hasVectorRegions = nodeRefs.some(r => r.type === 'vectorRegions');
+
+      const clonedFills = (!hasMixed && paintData.fills) ? JSON.parse(JSON.stringify(paintData.fills)) : [];
+      const clonedStrokes = paintData.strokes ? JSON.parse(JSON.stringify(paintData.strokes)) : [];
+      const clonedEffects = paintData.effects ? JSON.parse(JSON.stringify(paintData.effects)) : [];
       let clonedVectorNetwork = null;
-      if (hasVectorRegions && node.vectorNetwork && node.vectorNetwork.regions) {
-        clonedVectorNetwork = JSON.parse(JSON.stringify(node.vectorNetwork));
+      if (hasVectorRegions && paintData.vectorNetwork) {
+        clonedVectorNetwork = JSON.parse(JSON.stringify(paintData.vectorNetwork));
       }
 
       let fillsDirty = false, strokesDirty = false, effectsDirty = false, vectorNetworkDirty = false;
+      const modifiedSegments = new Set();
 
       for (const ref of nodeRefs) {
-        const key = ref.type === 'mixedTextFills'
-          ? `${ref.nodeId}-${ref.type}-${ref.segmentIndex}-${ref.index}-${ref.stopIndex}`
-          : (ref.type === 'vectorRegions'
-            ? `${ref.nodeId}-${ref.type}-${ref.regionIndex}-${ref.index}-${ref.stopIndex}`
-            : `${ref.nodeId}-${ref.type}-${ref.index}-${ref.stopIndex}`);
-        const initialHSL = initialValues ? initialValues[key] : null;
+        const refKey = getRefKey(ref);
+        const initialHSL = initialValues ? initialValues[refKey] : null;
 
         if (ref.type === 'effects') {
           effectsDirty = true;
           const e = clonedEffects[ref.index];
           const { color: newColor } = calculateNewColor(e.color, msg.component, v, delta, initialHSL);
           e.color = Object.assign(newColor, { a: e.color.a });
+          currentColors[refKey] = { r: newColor.r, g: newColor.g, b: newColor.b };
         } else if (ref.type === 'mixedTextFills') {
-          const origSeg = originalPaints[nodeId].segments[ref.segmentIndex];
-          const currentFills = node.getRangeFills(origSeg.start, origSeg.end);
-          if (currentFills === figma.mixed) continue; // Should not happen if segments are valid
-          const paints = clonePaints(currentFills);
-          const p = paints[ref.index];
+          const seg = paintData.segments[ref.segmentIndex];
+          const p = seg.fills[ref.index];
           const target = p.type === 'SOLID' ? p : p.gradientStops[ref.stopIndex];
           const { color: newColor } = calculateNewColor(target.color, msg.component, v, delta, initialHSL);
           target.color = p.type === 'SOLID' ? newColor : Object.assign(newColor, { a: target.color.a });
-          node.setRangeFills(origSeg.start, origSeg.end, paints);
+          modifiedSegments.add(ref.segmentIndex);
+          currentColors[refKey] = { r: newColor.r, g: newColor.g, b: newColor.b };
         } else if (ref.type === 'vectorRegions') {
-          // Handle vector network regions (paint bucket fills)
           if (!clonedVectorNetwork || !clonedVectorNetwork.regions[ref.regionIndex]) continue;
           vectorNetworkDirty = true;
           const p = clonedVectorNetwork.regions[ref.regionIndex].fills[ref.index];
           const target = p.type === 'SOLID' ? p : p.gradientStops[ref.stopIndex];
           const { color: newColor } = calculateNewColor(target.color, msg.component, v, delta, initialHSL);
           target.color = p.type === 'SOLID' ? newColor : Object.assign(newColor, { a: target.color.a });
-        } else { // standard fills or strokes
-          // Determine target array
+          currentColors[refKey] = { r: newColor.r, g: newColor.g, b: newColor.b };
+        } else {
           let targetPaintArray = ref.type === 'fills' ? clonedFills : clonedStrokes;
           if (ref.type === 'fills') fillsDirty = true; else strokesDirty = true;
           const p = targetPaintArray[ref.index];
           const target = p.type === 'SOLID' ? p : p.gradientStops[ref.stopIndex];
           const { color: newColor } = calculateNewColor(target.color, msg.component, v, delta, initialHSL);
           target.color = p.type === 'SOLID' ? newColor : Object.assign(newColor, { a: target.color.a });
+          currentColors[refKey] = { r: newColor.r, g: newColor.g, b: newColor.b };
         }
       }
 
-      if (fillsDirty) { await node.setFillStyleIdAsync(''); node.fills = clonedFills; }
-      if (strokesDirty) { await node.setStrokeStyleIdAsync(''); node.strokes = clonedStrokes; }
-      if (effectsDirty) node.effects = clonedEffects;
-      if (vectorNetworkDirty && clonedVectorNetwork) await node.setVectorNetworkAsync(clonedVectorNetwork);
-    });
+      if (fillsDirty) paintData.fills = clonedFills;
+      if (strokesDirty) paintData.strokes = clonedStrokes;
+      if (effectsDirty) paintData.effects = clonedEffects;
+      if (vectorNetworkDirty && clonedVectorNetwork) {
+        paintData.vectorNetwork = clonedVectorNetwork;
+        paintData.vectorRegions = clonedVectorNetwork.regions.filter(r => r.fills && r.fills.length > 0).map(r => ({
+          fills: r.fills, windingRule: r.windingRule, loops: r.loops
+        }));
+      }
 
-    await Promise.all(promises);
+      writeOps.push({ nodeId, hasMixed, fillsDirty, strokesDirty, effectsDirty, vectorNetworkDirty,
+        clonedFills, clonedStrokes, clonedEffects, clonedVectorNetwork, modifiedSegments, paintData });
+    }
+
+    for (const op of writeOps) {
+      const node = await figma.getNodeByIdAsync(op.nodeId);
+      if (!node) continue;
+      if (op.hasMixed) await ensureNodeFontsLoaded(node);
+      if (op.fillsDirty) { await node.setFillStyleIdAsync(''); node.fills = op.clonedFills; }
+      if (op.strokesDirty) { await node.setStrokeStyleIdAsync(''); node.strokes = op.clonedStrokes; }
+      if (op.effectsDirty) node.effects = op.clonedEffects;
+      if (op.vectorNetworkDirty && op.clonedVectorNetwork) await node.setVectorNetworkAsync(op.clonedVectorNetwork);
+      for (const segIdx of op.modifiedSegments) {
+        const seg = op.paintData.segments[segIdx];
+        node.setRangeFills(seg.start, seg.end, seg.fills);
+      }
+    }
 
     // Only recalculate subsets on the final update (not during fast drag updates)
     if (msg.type === 'change-hsl-group') {
-      const subsets = await getCurrentSubsets();
       figma.ui.postMessage({
         type: 'update-subsets',
-        subsets: subsets
+        subsets: computeCurrentSubsets()
       });
     }
 
   } else if (msg.type === 'change-hsl-subset') {
-    // NOTE: This logic for individual subset colors remains an absolute change.
     const v = msg.component === 'h' ? msg.value / 360 : msg.value / 100;
-    const allSubsets = await getCurrentSubsets();
+    const allSubsets = computeCurrentSubsets();
     const targetHSL = allSubsets[msg.groupIndex][msg.subsetIndex];
     for (const ref of (groupMap[msg.groupIndex] || [])) {
-      const node = await figma.getNodeByIdAsync(ref.nodeId);
-      if (!node) continue;
-      let c;
-      if (ref.type === 'effects') {
-        c = node.effects[ref.index].color;
-      } else if (ref.type === 'mixedTextFills') {
-        const segs = node.getStyledTextSegments(['fills']);
-        const p = segs[ref.segmentIndex].fills[ref.index];
-        c = p.type === 'SOLID' ? p.color : p.gradientStops[ref.stopIndex].color;
-      } else if (ref.type === 'vectorRegions') {
-        if (node.vectorNetwork && node.vectorNetwork.regions && node.vectorNetwork.regions[ref.regionIndex]) {
-          const p = node.vectorNetwork.regions[ref.regionIndex].fills[ref.index];
-          c = p.type === 'SOLID' ? p.color : p.gradientStops[ref.stopIndex].color;
-        }
-      } else {
-        const p = node[ref.type][ref.index];
-        c = p.type === 'SOLID'
-          ? p.color
-          : p.gradientStops[ref.stopIndex].color;
-      }
+      const refKey = getRefKey(ref);
+      const c = currentColors[refKey];
       if (!c) continue;
       const hsl = rgbToHsl(c.r, c.g, c.b);
-      const h = hsl.h * 360, s = hsl.s, l = hsl.l;
       if (
-        Math.abs(h - targetHSL.h) < 1 &&
-        Math.abs(s - targetHSL.s) < 0.01 &&
-        Math.abs(l - targetHSL.l) < 0.01
+        Math.abs(hsl.h * 360 - targetHSL.h) < 1 &&
+        Math.abs(hsl.s - targetHSL.s) < 0.01 &&
+        Math.abs(hsl.l - targetHSL.l) < 0.01
       ) {
         await applyRef(ref, msg.component, v);
+        const newHsl = { h: hsl.h, s: hsl.s, l: hsl.l };
+        newHsl[msg.component] = v;
+        if (msg.component === 'h' && newHsl.s === 0) newHsl.s = 0.5;
+        if (msg.component === 'l') newHsl.l = Math.max(0.01, Math.min(0.99, v));
+        const nr = hslToRgb(newHsl.h, newHsl.s, newHsl.l);
+        currentColors[refKey] = { r: nr.r, g: nr.g, b: nr.b };
       }
     }
-    const subsets2 = await getCurrentSubsets();
     figma.ui.postMessage({
       type: 'update-subsets',
-      subsets: subsets2
+      subsets: computeCurrentSubsets()
     });
 
   } else if (msg.type === 'stop-hsl-change') {
@@ -645,43 +606,16 @@ figma.ui.onmessage = async (msg) => {
     await handleSelectionChange();
 
   } else if (msg.type === 'reset-subset') {
-    const subsetsArr = await getCurrentSubsets();
+    const subsetsArr = computeCurrentSubsets();
     const targetHSL = subsetsArr[msg.groupIndex][msg.subsetIndex];
     for (const ref of (groupMap[msg.groupIndex] || [])) {
-      const node = await figma.getNodeByIdAsync(ref.nodeId);
-      // Add defensive checks
-      if (!node) continue;
-      if (ref.type !== 'vectorRegions' && ref.type !== 'effects' && ref.type !== 'mixedTextFills') {
-        if (!node[ref.type] || !node[ref.type][ref.index]) continue;
-      }
-
-      let c;
-      if (ref.type === 'effects') {
-        c = node.effects[ref.index].color;
-      } else if (ref.type === 'mixedTextFills') {
-        const segs = node.getStyledTextSegments(['fills']);
-        const p = segs[ref.segmentIndex].fills[ref.index];
-        c = p.type === 'SOLID' ? p.color : p.gradientStops[ref.stopIndex].color;
-      } else if (ref.type === 'vectorRegions') {
-        if (node.vectorNetwork && node.vectorNetwork.regions && node.vectorNetwork.regions[ref.regionIndex]) {
-          const p = node.vectorNetwork.regions[ref.regionIndex].fills[ref.index];
-          c = p.type === 'SOLID' ? p.color : p.gradientStops[ref.stopIndex].color;
-        } else {
-          continue;
-        }
-      } else {
-        const p = node[ref.type][ref.index];
-        if (p.type !== 'SOLID' && (!p.gradientStops || !p.gradientStops[ref.stopIndex])) continue;
-        c = p.type === 'SOLID'
-          ? p.color
-          : p.gradientStops[ref.stopIndex].color;
-      }
+      const c = currentColors[getRefKey(ref)];
+      if (!c) continue;
       const hsl = rgbToHsl(c.r, c.g, c.b);
-      const h = hsl.h * 360, s = hsl.s, l = hsl.l;
       if (
-        Math.abs(h - targetHSL.h) < 1 &&
-        Math.abs(s - targetHSL.s) < 0.01 &&
-        Math.abs(l - targetHSL.l) < 0.01
+        Math.abs(hsl.h * 360 - targetHSL.h) < 1 &&
+        Math.abs(hsl.s - targetHSL.s) < 0.01 &&
+        Math.abs(hsl.l - targetHSL.l) < 0.01
       ) {
         await resetRef(ref);
       }
@@ -689,48 +623,25 @@ figma.ui.onmessage = async (msg) => {
     await handleSelectionChange();
 
   } else if (msg.type === 'hover-subset') {
-    const subsetsArr = await getCurrentSubsets();
+    const subsetsArr = computeCurrentSubsets();
     const targetHSL = subsetsArr[msg.groupIndex][msg.subsetIndex];
     const refs = groupMap[msg.groupIndex] || [];
-    const nodeIds = new Set();
+    const matchingNodeIds = [];
     for (const ref of refs) {
-      const node = await figma.getNodeByIdAsync(ref.nodeId);
-      if (!node) continue;
-      let c;
-      if (ref.type === 'effects') {
-        c = node.effects[ref.index].color;
-      } else if (ref.type === 'mixedTextFills') {
-        const segs = node.getStyledTextSegments(['fills']);
-        const p = segs[ref.segmentIndex].fills[ref.index];
-        c = p.type === 'SOLID' ? p.color : p.gradientStops[ref.stopIndex].color;
-      } else if (ref.type === 'vectorRegions') {
-        if (node.vectorNetwork && node.vectorNetwork.regions && node.vectorNetwork.regions[ref.regionIndex]) {
-          const p = node.vectorNetwork.regions[ref.regionIndex].fills[ref.index];
-          c = p.type === 'SOLID' ? p.color : p.gradientStops[ref.stopIndex].color;
-        }
-      } else {
-        const p = node[ref.type][ref.index];
-        c = p.type === 'SOLID'
-          ? p.color
-          : p.gradientStops[ref.stopIndex].color;
-      }
+      const c = currentColors[getRefKey(ref)];
       if (!c) continue;
       const hsl = rgbToHsl(c.r, c.g, c.b);
-      const h = hsl.h * 360, s = hsl.s, l = hsl.l;
       if (
-        Math.abs(h - targetHSL.h) < 5 &&
-        Math.abs(s - targetHSL.s) < 0.05 &&
-        Math.abs(l - targetHSL.l) < 0.05
+        Math.abs(hsl.h * 360 - targetHSL.h) < 5 &&
+        Math.abs(hsl.s - targetHSL.s) < 0.05 &&
+        Math.abs(hsl.l - targetHSL.l) < 0.05
       ) {
-        nodeIds.add(ref.nodeId);
+        matchingNodeIds.push(ref.nodeId);
       }
     }
-    const nodesToHighlight = [];
-    for (const id of nodeIds) {
-      const n = await figma.getNodeByIdAsync(id);
-      if (n) nodesToHighlight.push(n);
-    }
-    highlightNodes(nodesToHighlight);
+    const uniqueIds = [...new Set(matchingNodeIds)];
+    const nodes = await Promise.all(uniqueIds.map(id => figma.getNodeByIdAsync(id)));
+    highlightNodes(nodes.filter(Boolean));
 
   } else if (msg.type === 'set-hex') {
     const { groupIndex, subsetIndex, hex } = msg;
@@ -739,45 +650,26 @@ figma.ui.onmessage = async (msg) => {
     const b8 = parseInt(hex.slice(5, 7), 16) / 255;
     const newHSL = rgbToHsl(r8, g8, b8);
     const vH = newHSL.h, vS = newHSL.s, vL = newHSL.l;
+    const refs = groupMap[groupIndex] || [];
 
     if (subsetIndex < 0) {
-      for (const ref of (groupMap[groupIndex] || [])) {
+      for (const ref of refs) {
         await applyRef(ref, 'h', vH);
         await applyRef(ref, 's', vS);
         await applyRef(ref, 'l', vL);
       }
     } else {
-      const oldSubsets = await getCurrentSubsets();
+      const oldSubsets = computeCurrentSubsets();
       const targetHSL = oldSubsets[groupIndex][subsetIndex];
       const epsH = 1, epsS = 0.01, epsL = 0.01;
-      for (const ref of (groupMap[groupIndex] || [])) {
-        const node = await figma.getNodeByIdAsync(ref.nodeId);
-        if (!node) continue;
-        let c;
-        if (ref.type === 'effects') {
-          c = node.effects[ref.index].color;
-        } else if (ref.type === 'mixedTextFills') {
-          const segs = node.getStyledTextSegments(['fills']);
-          const p = segs[ref.segmentIndex].fills[ref.index];
-          c = p.type === 'SOLID' ? p.color : p.gradientStops[ref.stopIndex].color;
-        } else if (ref.type === 'vectorRegions') {
-          if (node.vectorNetwork && node.vectorNetwork.regions && node.vectorNetwork.regions[ref.regionIndex]) {
-            const p = node.vectorNetwork.regions[ref.regionIndex].fills[ref.index];
-            c = p.type === 'SOLID' ? p.color : p.gradientStops[ref.stopIndex].color;
-          }
-        } else {
-          const p = node[ref.type][ref.index];
-          c = p.type === 'SOLID'
-            ? p.color
-            : p.gradientStops[ref.stopIndex].color;
-        }
+      for (const ref of refs) {
+        const c = currentColors[getRefKey(ref)];
         if (!c) continue;
         const cur = rgbToHsl(c.r, c.g, c.b);
-        const h = cur.h * 360, s = cur.s, l = cur.l;
         if (
-          Math.abs(h - targetHSL.h) < epsH &&
-          Math.abs(s - targetHSL.s) < epsS &&
-          Math.abs(l - targetHSL.l) < epsL
+          Math.abs(cur.h * 360 - targetHSL.h) < epsH &&
+          Math.abs(cur.s - targetHSL.s) < epsS &&
+          Math.abs(cur.l - targetHSL.l) < epsL
         ) {
           await applyRef(ref, 'h', vH);
           await applyRef(ref, 's', vS);
